@@ -11,12 +11,16 @@ on:
 
 jobs:
   build:
-
     runs-on: macos-latest
+    strategy:
+      matrix:
+        package: [Messages, Safari, WhatsApp]
 
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: swift build -v
+      working-directory: ${{ matrix.package }}
+      run: swift build -c release -v
     - name: Run tests
+      working-directory: ${{ matrix.package }}
       run: swift test -v
