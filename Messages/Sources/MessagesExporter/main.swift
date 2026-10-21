@@ -3,6 +3,14 @@ import Foundation
 
 private let appleEpochSeconds = 978_307_200.0
 
+private let timestampFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.timeZone = .current
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    return f
+}()
+
 private enum SQLiteValue {
     case null
     case integer(Int64)
@@ -88,6 +96,12 @@ private final class SQLiteDatabase {
             }
         }
 
+        // Read column metadata once per statement, not once per cell.
+        let columnCount = sqlite3_column_count(statement)
+        let columnNames = (0..<columnCount).map {
+            String(cString: sqlite3_column_name(statement, $0))
+        }
+
         var resultRows: [SQLiteRow] = []
         while true {
             let result = sqlite3_step(statement)
@@ -96,8 +110,8 @@ private final class SQLiteDatabase {
                 throw ToolError.message(String(cString: sqlite3_errmsg(handle)))
             }
             var values: [String: SQLiteValue] = [:]
-            for index in 0..<sqlite3_column_count(statement) {
-                let name = String(cString: sqlite3_column_name(statement, index))
+            for index in 0..<columnCount {
+                let name = columnNames[Int(index)]
                 switch sqlite3_column_type(statement, index) {
                 case SQLITE_INTEGER:
                     values[name] = .integer(sqlite3_column_int64(statement, index))
@@ -207,14 +221,14 @@ private func resolveDatabase(_ supplied: String?) throws -> URL {
     let candidates = [
         home.appendingPathComponent("Library/Messages/chat.db"),
         URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("chat.db")
+            .appendingPathComponent("chat.db"),
     ]
     if let match = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
         return match
     }
     throw ToolError.message(
-        "could not auto-detect chat.db. Pass its path explicitly. " +
-        "If macOS reports Operation not permitted, grant Full Disk Access to your terminal."
+        "could not auto-detect chat.db. Pass its path explicitly. "
+            + "If macOS reports Operation not permitted, grant Full Disk Access to your terminal."
     )
 }
 
@@ -242,11 +256,7 @@ private func dateFromAppleTimestamp(_ value: Double?) -> Date? {
 
 private func formatDate(_ date: Date?) -> String {
     guard let date else { return "unknown-time" }
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = .current
-    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-    return formatter.string(from: date)
+    return timestampFormatter.string(from: date)
 }
 
 private func decodeAttributedBody(_ value: SQLiteValue) -> String? {
