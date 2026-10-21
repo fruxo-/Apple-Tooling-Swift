@@ -140,7 +140,7 @@ private enum ToolError: Error, CustomStringConvertible {
 }
 
 private struct Options {
-    var database: String
+    var database: String?
     var output = "messages_export"
     var me = "Me"
     var oldestFirst = false
@@ -148,9 +148,9 @@ private struct Options {
 
 private func usage() -> String {
     """
-    Usage: messages-exporter DB [--out DIR] [--me NAME] [--oldest-first]
+    Usage: messages-exporter [DB] [--out DIR] [--me NAME] [--oldest-first]
     Export Messages conversations to separate text files.
-      DB               path to chat.db
+      DB               path to chat.db (auto-detected if omitted)
       --out DIR        output directory (default: ./messages_export)
       --me NAME        label for your own messages (default: Me)
       --oldest-first   sort oldest to newest instead of newest first
@@ -159,7 +159,7 @@ private func usage() -> String {
 }
 
 private func parseArguments() throws -> Options {
-    var options: Options?
+    var database: String?
     var output = "messages_export"
     var me = "Me"
     var oldestFirst = false
@@ -177,23 +177,45 @@ private func parseArguments() throws -> Options {
         case "--oldest-first":
             oldestFirst = true
         default:
-            guard !arg.hasPrefix("-"), options == nil else {
+            guard !arg.hasPrefix("-"), database == nil else {
                 throw ToolError.message("unexpected argument: \(arg)\n\n\(usage())")
             }
-            options = Options(database: arg)
+            database = arg
         }
     }
-    guard var result = options else {
-        throw ToolError.message("database path is required\n\n\(usage())")
-    }
-    result.output = output
-    result.me = me
-    result.oldestFirst = oldestFirst
-    return result
+    return Options(
+        database: database,
+        output: output,
+        me: me,
+        oldestFirst: oldestFirst
+    )
 }
 
 private func expandedURL(_ path: String) -> URL {
     URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+}
+
+private func resolveDatabase(_ supplied: String?) throws -> URL {
+    if let supplied {
+        let url = expandedURL(supplied)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw ToolError.message("Database not found: \(url.path)")
+        }
+        return url
+    }
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let candidates = [
+        home.appendingPathComponent("Library/Messages/chat.db"),
+        URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("chat.db")
+    ]
+    if let match = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+        return match
+    }
+    throw ToolError.message(
+        "could not auto-detect chat.db. Pass its path explicitly. " +
+        "If macOS reports Operation not permitted, grant Full Disk Access to your terminal."
+    )
 }
 
 private func makeSnapshot(of source: URL, in directory: URL) throws -> URL {
@@ -386,10 +408,7 @@ private enum MessagesExporter {
     static func main() {
         do {
             let options = try parseArguments()
-            let databaseURL = expandedURL(options.database)
-            guard FileManager.default.fileExists(atPath: databaseURL.path) else {
-                throw ToolError.message("Database not found: \(databaseURL.path)")
-            }
+            let databaseURL = try resolveDatabase(options.database)
             let output = expandedURL(options.output)
             let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "messages_export_\(UUID().uuidString)")

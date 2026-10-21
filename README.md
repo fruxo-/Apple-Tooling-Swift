@@ -29,13 +29,15 @@ Options include `--utc` and `--include-status`.
 ## Messages exporter
 
 Exports macOS Messages conversations from `chat.db`, merging threads with the
-same identifier.
+same identifier. If no database path is given, the executable checks
+`~/Library/Messages/chat.db` and then `./chat.db`.
 
 ```sh
 cd Messages
 swift build -c release
 .build/release/messages-exporter --help
 .build/release/messages-exporter ~/Library/Messages/chat.db --out ~/Desktop/messages-export
+.build/release/messages-exporter --out ~/Desktop/messages-export
 ```
 
 Use `--me NAME` to change the label for your own messages and
