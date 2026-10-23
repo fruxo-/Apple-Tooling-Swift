@@ -1,9 +1,9 @@
 # VoiceMemosUtils
 
-A small macOS command-line tool, `VoiceMemosUtils`, that finds Voice Memos recordings by **date**, **date range** and a **boolean search over the title**, and prints the paths of the matching audio files, one per line, which makes it easy to script.
+A small macOS command-line tool, `voice-memos-utils`, that finds Voice Memos recordings by **date**, **date range** and a **boolean search over the title**, and prints the paths of the matching audio files, one per line, which makes it easy to script.
 
 ```console
-$ VoiceMemosUtils --from 2026-10-01 --search 'meeting and (budget or roadmap)'
+$ voice-memos-utils --from 2026-10-01 --search 'meeting and (budget or roadmap)'
 /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261003 091500-A1B2C3D4.m4a
 /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261017 140200-E5F6A7B8.m4a
 ```
@@ -11,7 +11,7 @@ $ VoiceMemosUtils --from 2026-10-01 --search 'meeting and (budget or roadmap)'
 Add `--describe` to see each recording's description (the title you see, and can edit, in Voice Memos) before its path:
 
 ```console
-$ VoiceMemosUtils --from 2026-10-01 --search 'meeting and (budget or roadmap)' --describe
+$ voice-memos-utils --from 2026-10-01 --search 'meeting and (budget or roadmap)' --describe
 Description: Q4 budget meeting
 Path: /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261003 091500-A1B2C3D4.m4a
 
@@ -19,7 +19,7 @@ Description: Roadmap meeting
 Path: /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261017 140200-E5F6A7B8.m4a
 ```
 
-Voice Memos stores recordings under opaque, timestamp-based file names, and the titles you see in the app live in a separate SQLite database. `VoiceMemosUtils` queries that database for you.
+Voice Memos stores recordings under opaque, timestamp-based file names, and the titles you see in the app live in a separate SQLite database. `voice-memos-utils` queries that database for you.
 
 ## Requirements
 
@@ -33,22 +33,22 @@ Voice Memos stores recordings under opaque, timestamp-based file names, and the 
 swift build -c release
 ```
 
-The binary ends up at `.build/release/VoiceMemosUtils`. To install it, copy it to any directory on your `PATH`:
+The binary ends up at `.build/release/voice-memos-utils`. To install it, copy it to any directory on your `PATH`:
 
 ```sh
-cp .build/release/VoiceMemosUtils ~/.local/bin/
+cp .build/release/voice-memos-utils ~/.local/bin/
 ```
 
 During development you can skip the install step:
 
 ```sh
-swift run VoiceMemosUtils --help
+swift run voice-memos-utils --help
 ```
 
 ## Usage
 
 ```
-VoiceMemosUtils [--date <YYYY-MM-DD>] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>]
+voice-memos-utils [--date <YYYY-MM-DD>] [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>]
          [--search <expression>]
          [--describe] [--db <path>] [--include-missing]
 ```
@@ -72,7 +72,7 @@ Days are written as `YYYY-MM-DD` and interpreted in your **local time zone**.
 `--search` (short form `-s`) takes a boolean expression that is matched against the recording's title:
 
 ```sh
-VoiceMemosUtils --search '(foo and bar) or (alice and bob)'
+voice-memos-utils --search '(foo and bar) or (alice and bob)'
 ```
 
 | Element | Meaning |
@@ -94,7 +94,7 @@ Rules worth knowing:
 
 ### Output
 
-By default `VoiceMemosUtils` prints **only the paths**, one per line, oldest recording first, so the output can be piped straight into other tools.
+By default `voice-memos-utils` prints **only the paths**, one per line, oldest recording first, so the output can be piped straight into other tools.
 
 With `--describe` (short form `-d`), each match is printed as two labelled lines, with a blank line between recordings:
 
@@ -118,31 +118,31 @@ The description is the recording's title. A recording with no title falls back t
 
 ```sh
 # Everything recorded on one day
-VoiceMemosUtils --date 2026-10-23
+voice-memos-utils --date 2026-10-23
 
 # October 2026
-VoiceMemosUtils --from 2026-10-01 --to 2026-10-31
+voice-memos-utils --from 2026-10-01 --to 2026-10-31
 
 # Everything since the start of the year
-VoiceMemosUtils --from 2026-01-01
+voice-memos-utils --from 2026-01-01
 
 # Title contains "meeting" AND "budget"
-VoiceMemosUtils --search 'meeting and budget'
+voice-memos-utils --search 'meeting and budget'
 
 # Title contains "idea" OR "lyrics" OR "melody"
-VoiceMemosUtils --search 'idea or lyrics or melody'
+voice-memos-utils --search 'idea or lyrics or melody'
 
 # Grouping: (foo AND bar) OR (alice AND bob)
-VoiceMemosUtils --search '(foo and bar) or (alice and bob)'
+voice-memos-utils --search '(foo and bar) or (alice and bob)'
 
 # Exact phrase combined with alternatives
-VoiceMemosUtils --search '"team meeting" and (budget or roadmap)'
+voice-memos-utils --search '"team meeting" and (budget or roadmap)'
 
 # Date range + search: "project" AND ("kickoff" OR "review")
-VoiceMemosUtils --from 2026-01-01 --to 2026-06-30 --search 'project and (kickoff or review)'
+voice-memos-utils --from 2026-01-01 --to 2026-06-30 --search 'project and (kickoff or review)'
 
 # See each recording's description alongside its path
-VoiceMemosUtils --search meeting --describe
+voice-memos-utils --search meeting --describe
 ```
 
 ### Using the output
@@ -152,23 +152,23 @@ Paths are printed one per line, and the default Voice Memos folder contains a sp
 ```sh
 # Copy all matches to a folder
 mkdir -p ~/Desktop/export
-VoiceMemosUtils --search meeting | while IFS= read -r file; do
+voice-memos-utils --search meeting | while IFS= read -r file; do
     cp "$file" ~/Desktop/export/
 done
 
 # Or with xargs
-VoiceMemosUtils --search meeting | tr '\n' '\0' | xargs -0 -I{} cp {} ~/Desktop/export/
+voice-memos-utils --search meeting | tr '\n' '\0' | xargs -0 -I{} cp {} ~/Desktop/export/
 ```
 
 ## Permissions
 
-The Voice Memos data lives in a protected location, so the terminal app running `VoiceMemosUtils` needs access:
+The Voice Memos data lives in a protected location, so the terminal app running `voice-memos-utils` needs access:
 
 1. Open **System Settings > Privacy & Security > Full Disk Access**.
 2. Enable your terminal app (Terminal, iTerm2, Ghostty, and so on).
 3. Restart the terminal.
 
-Without it, `VoiceMemosUtils` exits with an error that points here.
+Without it, `voice-memos-utils` exits with an error that points here.
 
 ## How it works
 
@@ -190,7 +190,7 @@ Without it, `VoiceMemosUtils` exits with an error that points here.
 - On macOS versions before Sonoma, the database is in a different place. Pass it explicitly:
 
   ```sh
-  VoiceMemosUtils --db ~/Library/Application\ Support/com.apple.voicememos/Recordings/CloudRecordings.db --date 2026-10-23
+  voice-memos-utils --db ~/Library/Application\ Support/com.apple.voicememos/Recordings/CloudRecordings.db --date 2026-10-23
   ```
 
 ## Project layout
@@ -202,11 +202,11 @@ Sources/
 │   ├── SearchCriteria.swift      DateFilter, SearchCriteria, DayParser
 │   ├── SearchExpression.swift    Boolean title expressions: lexer, parser, matcher, errors
 │   └── VoiceMemosLibrary.swift   Recording, VoiceMemosLibrary, VoiceMemosError
-└── VoiceMemosUtils/          Executable: the `VoiceMemosUtils` command (swift-argument-parser)
-    └── VoiceMemosUtils.swift
+└── voice-memos-utils/          Executable: the `voice-memos-utils` command (swift-argument-parser)
+    └── voice-memos-utils.swift
 Tests/
-└── VoiceMemosUtilsTests/     Swift Testing suites
-    └── VoiceMemosUtilsTests.swift
+└── voice-memos-utilsTests/     Swift Testing suites
+    └── voice-memos-utilsTests.swift
 ```
 
 `VoiceMemosKit` has no command-line concerns, so it can be reused from other tools or tests.

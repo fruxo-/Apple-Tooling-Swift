@@ -66,7 +66,7 @@ the default paths. Each package is versioned independently in its own
 A small macOS command-line tool, `VoiceMemosUtils`, that finds Voice Memos recordings by **date**, **date range** and a **boolean search over the title**, and prints the paths of the matching audio files, one per line, which makes it easy to script.
 
 ```console
-$ VoiceMemosUtils --from 2026-10-01 --search 'meeting and (budget or roadmap)'
+$ voice-memos-utils --from 2026-10-01 --search 'meeting and (budget or roadmap)'
 /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261003 091500-A1B2C3D4.m4a
 /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261017 140200-E5F6A7B8.m4a
 ```
@@ -74,7 +74,7 @@ $ VoiceMemosUtils --from 2026-10-01 --search 'meeting and (budget or roadmap)'
 Add `--describe` to see each recording's description (the title you see, and can edit, in Voice Memos) before its path:
 
 ```console
-$ VoiceMemosUtils --from 2026-10-01 --search 'meeting and (budget or roadmap)' --describe
+$ voice-memos-utils --from 2026-10-01 --search 'meeting and (budget or roadmap)' --describe
 Description: Q4 budget meeting
 Path: /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261003 091500-A1B2C3D4.m4a
 
