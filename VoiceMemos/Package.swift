@@ -5,6 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "VoiceMemosUtils",
+    platforms: [.macOS(.v13)],
     products: [
         // The binary is called `vmsearch`; rename freely.
         .executable(name: "voice-memos-utils", targets: ["VoiceMemosUtils"])
