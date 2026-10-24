@@ -35,7 +35,8 @@ enum MailStore {
                COALESCE(m.subject_prefix, ''),
                s.subject,
                sm.summary,
-               g.message_id_header
+               g.message_id_header,
+               m.conversation_id
         FROM messages m
         JOIN subjects  s  ON s.ROWID  = m.subject
         JOIN mailboxes mb ON mb.ROWID = m.mailbox
@@ -63,6 +64,7 @@ enum MailStore {
             let message = Message(
                 copies: [copy],
                 globalID: global,
+                conversationID: row.int64(11) ?? 0,
                 timestamp: row.int64(4) ?? 0,
                 senderEmail: senderRaw.trimmingCharacters(in: .whitespaces).lowercased(),
                 senderName: row.string(6) ?? "",

@@ -1,56 +1,27 @@
 import ArgumentParser
 import Foundation
 
-@main
-struct MailExport: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "mail-utils",
-        abstract: "Utility tool for Apple Mail.",
-        discussion: """
-        Reads Mail's Envelope Index database (from a private temporary copy, so the live \
-        database is never touched) and the .emlx message files next to it.
-
-        A "correspondence" is an unordered pair of email addresses: the sender of a message \
-        plus any one of its recipients (To, Cc or Bcc). Each correspondence becomes a folder; \
-        each message in it becomes one Markdown file whose name starts with its UTC timestamp, \
-        so files sort chronologically. A message sent to several people appears in each \
-        relevant folder.
-
-        Mail's data folder is read from ~/Library/Mail/V* by default. Your terminal needs \
-        Full Disk Access to read it (System Settings > Privacy & Security).
-        """
-    )
-
+/// Options that decide *which* correspondence is selected. Shared by `export` and `list`.
+struct SelectionOptions: ParsableArguments {
     @Option(name: .shortAndLong,
             help: "Mail data directory: a version folder such as ~/Library/Mail/V10, or its parent. Defaults to the newest ~/Library/Mail/V*.")
     var mailDirectory: String?
 
-    @Option(name: .shortAndLong,
-            help: "Output directory (created if needed).")
-    var output: String = "mail-export"
-
-    @Option(help: "Only messages on or after this date. YYYY-MM-DD (local time) or an ISO 8601 date-time.")
+    @Option(help: "Only emails on or after this date. YYYY-MM-DD (local time) or an ISO 8601 date-time. Threads keep only their emails inside the window.")
     var from: DateInput?
 
-    @Option(help: "Only messages on or before this date. A bare YYYY-MM-DD includes that whole day.")
+    @Option(help: "Only emails on or before this date. A bare YYYY-MM-DD includes that whole day.")
     var to: DateInput?
 
     @Option(name: .customLong("party"),
-            help: "Restrict to correspondence involving this address. Give it once to export everyone that address corresponded with; give it two or more times to export only pairs made of those addresses.")
+            help: "Only threads in which this address took part, as sender, To, Cc or Bcc of any email. Give it more than once to require all of those addresses.")
     var parties: [String] = []
 
-    @Option(help: "Skip correspondences with fewer than this many messages.")
+    @Option(help: "Skip threads with fewer than this many emails.")
     var minMessages: Int = 1
 
     @Flag(help: "Include messages Mail has flagged as deleted.")
     var includeDeleted = false
-
-    @Flag(help: "List the correspondences that would be exported (count, address, address) and exit without writing anything.")
-    var dryRun = false
-
-    @Flag(name: .shortAndLong,
-          help: "Report every message whose body could not be found.")
-    var verbose = false
 
     mutating func validate() throws {
         if minMessages < 1 {
@@ -60,8 +31,22 @@ struct MailExport: ParsableCommand {
             throw ValidationError("--from must not be later than --to.")
         }
     }
+}
 
-    func run() throws {
+/// Everything the subcommands need once the database has been read.
+struct LoadedMail {
+    let location: MailLocation
+    /// Chronological, de-duplicated.
+    let messages: [Message]
+    let threads: [MailThread]
+    /// The --party addresses, lowercased, de-duplicated and sorted.
+    let parties: [String]
+    let rangeDescription: String?
+}
+
+extension SelectionOptions {
+    /// Resolves the Mail folder, reads a private copy of the Envelope Index and builds the threads.
+    func load() throws -> LoadedMail {
         let location = try MailLocation.resolve(override: mailDirectory)
         Log.info("Mail data: \(location.root.path)")
 
@@ -104,49 +89,15 @@ struct MailExport: ParsableCommand {
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
                 .filter { !$0.isEmpty }
         )
-        let correspondences = Correspondence.build(from: messages, parties: partySet, minMessages: minMessages)
+        let threads = MailThread.build(from: messages, parties: partySet, minMessages: minMessages)
 
-        if correspondences.isEmpty {
-            print("No matching correspondence found.")
-            return
-        }
-
-        if dryRun {
-            let sorted = correspondences.sorted {
-                $0.messageIndexes.count != $1.messageIndexes.count
-                    ? $0.messageIndexes.count > $1.messageIndexes.count
-                    : $0.key < $1.key
-            }
-            for item in sorted {
-                print("\(item.messageIndexes.count)\t\(item.key.first)\t\(item.key.second)")
-            }
-            Log.info("\(correspondences.count) correspondences (dry run, nothing written)")
-            return
-        }
-
-        Log.info("Indexing .emlx files (this can take a while on large mailboxes)…")
-        let index = EmlxIndex(root: location.root)
-        Log.info("Found \(index.fileCount) .emlx files")
-
-        let outputURL = URL(fileURLWithPath: (output as NSString).expandingTildeInPath, isDirectory: true)
-        let exporter = Exporter(
-            outputDirectory: outputURL,
-            locator: EmlxLocator(index: index),
-            names: Correspondence.collectNames(from: messages),
-            verbose: verbose
-        )
-        let summary = try exporter.export(
-            correspondences,
+        return LoadedMail(
+            location: location,
             messages: messages,
+            threads: threads,
+            parties: partySet.sorted(),
             rangeDescription: rangeParts.isEmpty ? nil : rangeParts.joined(separator: " ")
         )
-
-        print("""
-            Exported \(summary.filesWritten) message files in \(summary.correspondences) correspondences to \(outputURL.path)
-            """)
-        if summary.missingBodies > 0 {
-            Log.info("Body not found for \(summary.missingBodies) files (header details and snippet were written instead). Use --verbose to list them.")
-        }
     }
 }
 

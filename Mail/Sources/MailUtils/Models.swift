@@ -90,6 +90,8 @@ struct Message {
     /// The same message can live in several mailboxes; copies share a `global_message_id`.
     var copies: [MessageCopy]
     let globalID: Int64
+    /// Mail's `conversation_id`; 0 means the message was not assigned to a conversation.
+    let conversationID: Int64
     let timestamp: Int64
     let senderEmail: String
     let senderName: String
@@ -102,69 +104,113 @@ struct Message {
     var date: Date { Date(timeIntervalSince1970: TimeInterval(timestamp)) }
 }
 
-// MARK: - Correspondences (pairs of parties)
+// MARK: - Date formatting (always UTC)
 
-struct PairKey: Hashable, Comparable {
-    let first: String
-    let second: String
+enum DateFormat {
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 
-    init(_ a: String, _ b: String) {
-        if a <= b {
-            first = a
-            second = b
-        } else {
-            first = b
-            second = a
-        }
+    private static func makeFormatter(_ pattern: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = pattern
+        return formatter
     }
 
-    static func < (lhs: PairKey, rhs: PairKey) -> Bool {
-        (lhs.first, lhs.second) < (rhs.first, rhs.second)
-    }
+    private static let dayFormatter = makeFormatter("yyyy-MM-dd")
+    private static let fileStampFormatter = makeFormatter("yyyy-MM-dd_HHmmss")
+
+    /// 2024-03-02T09:15:00Z
+    static func iso(_ date: Date) -> String { isoFormatter.string(from: date) }
+    /// 2024-03-02
+    static func day(_ date: Date) -> String { dayFormatter.string(from: date) }
+    /// 2024-03-02_091500 (sorts chronologically, safe in file names)
+    static func fileStamp(_ date: Date) -> String { fileStampFormatter.string(from: date) }
 }
 
-struct Correspondence {
-    let key: PairKey
+// MARK: - Threads
+
+/// One Mail conversation (`conversation_id`), restricted to the emails that were selected.
+struct MailThread {
+    /// 0 for an email Mail did not assign to any conversation; it forms a thread of its own.
+    let conversationID: Int64
     /// Indexes into the messages array, in chronological order.
     let messageIndexes: [Int]
 
-    /// `messages` must already be sorted chronologically (MailStore does this).
-    static func build(from messages: [Message], parties: Set<String>, minMessages: Int) -> [Correspondence] {
-        var buckets: [PairKey: [Int]] = [:]
+    var count: Int { messageIndexes.count }
+}
+
+struct ThreadParticipant {
+    let email: String
+    /// Emails this participant sent within the thread (0 for people who only received).
+    let sent: Int
+}
+
+extension MailThread {
+    /// Groups `messages` (which must already be chronological) into threads, ordered by first email.
+    ///
+    /// - Parameter parties: if not empty, only threads in which *every* one of these addresses took part
+    ///   (as sender, To, Cc or Bcc of any email) are kept.
+    /// - Parameter minMessages: threads with fewer emails are dropped.
+    static func build(from messages: [Message], parties: Set<String>, minMessages: Int) -> [MailThread] {
+        var order: [Int64] = []
+        var buckets: [Int64: [Int]] = [:]
 
         for (index, message) in messages.enumerated() {
-            let sender = message.senderEmail
-            var others = Set<String>()
-            for recipient in message.recipients where recipient.email != sender {
-                others.insert(recipient.email)
+            let key = message.conversationID > 0 ? message.conversationID : -message.primaryRowID
+            if buckets[key] == nil { order.append(key) }
+            buckets[key, default: []].append(index)
+        }
+
+        var threads: [MailThread] = []
+        for key in order {
+            let thread = MailThread(conversationID: max(key, 0), messageIndexes: buckets[key] ?? [])
+            if thread.count < minMessages { continue }
+            if !parties.isEmpty {
+                let present = Set(thread.participants(in: messages).map { $0.email })
+                if !parties.isSubset(of: present) { continue }
             }
-            for other in others {
-                let key = PairKey(sender, other)
-                if accepts(key, parties: parties) {
-                    buckets[key, default: []].append(index)
-                }
+            threads.append(thread)
+        }
+        return threads
+    }
+
+    /// Everyone who sent or received an email in the thread, most active senders first.
+    func participants(in messages: [Message]) -> [ThreadParticipant] {
+        var sent: [String: Int] = [:]
+        var seen: [String] = []
+
+        func note(_ email: String) {
+            if sent[email] == nil {
+                sent[email] = 0
+                seen.append(email)
             }
         }
 
-        return buckets
-            .filter { $0.value.count >= minMessages }
-            .map { Correspondence(key: $0.key, messageIndexes: $0.value) }
-            .sorted { $0.key < $1.key }
-    }
-
-    private static func accepts(_ key: PairKey, parties: Set<String>) -> Bool {
-        switch parties.count {
-        case 0:
-            return true
-        case 1:
-            return parties.contains(key.first) || parties.contains(key.second)
-        default:
-            return parties.contains(key.first) && parties.contains(key.second)
+        for index in messageIndexes {
+            let message = messages[index]
+            note(message.senderEmail)
+            sent[message.senderEmail, default: 0] += 1
+            for recipient in message.recipients {
+                note(recipient.email)
+            }
         }
-    }
 
+        return seen
+            .map { ThreadParticipant(email: $0, sent: sent[$0] ?? 0) }
+            .sorted { $0.sent != $1.sent ? $0.sent > $1.sent : $0.email < $1.email }
+    }
+}
+
+// MARK: - Display names
+
+enum DisplayNames {
     /// First non-empty display name seen for each address.
-    static func collectNames(from messages: [Message]) -> [String: String] {
+    static func collect(from messages: [Message]) -> [String: String] {
         var names: [String: String] = [:]
 
         func note(_ email: String, _ raw: String) {
