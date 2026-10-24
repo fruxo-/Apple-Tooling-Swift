@@ -83,3 +83,17 @@ Path: /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recor
 ```
 
 More in its [README.md](./VoiceMemos/README.md).
+
+# MailUtils
+
+A small macOS command-line tool, `MailUtils`, allows to slice and dice Mail conversations for easy exporting to markdown.
+
+```console
+# Everyone you've corresponded with, in 2024 only
+mail-utils --party me@example.com --from 2024-01-01 --to 2024-12-31 -o ~/Desktop/mail-2024
+
+# One specific pair
+mail-utils --party alice@example.com --party bob@example.org
+```
+
+More in its [README.md](./Mail/README.md).
