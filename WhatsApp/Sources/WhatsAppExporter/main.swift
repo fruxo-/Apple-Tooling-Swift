@@ -2,11 +2,13 @@ import CSQLite
 import Foundation
 
 private let appleEpoch = Date(timeIntervalSince1970: 978_307_200)
-private let sessionTypes = [0: "individual", 1: "group", 2: "broadcast", 3: "status", 4: "community"]
+private let sessionTypes = [
+    0: "individual", 1: "group", 2: "broadcast", 3: "status", 4: "community",
+]
 private let messageTypes: [Int: String] = [
     1: "Image", 2: "Video", 3: "Audio", 4: "Contact", 5: "Location",
     6: "System/group event", 7: "Link", 8: "Document", 10: "System message",
-    11: "GIF", 14: "Deleted message", 15: "Sticker"
+    11: "GIF", 14: "Deleted message", 15: "Sticker",
 ]
 
 private enum SQLiteValue {
@@ -17,22 +19,22 @@ private enum SQLiteValue {
     case blob(Data)
 
     var string: String? {
-        if case let .text(value) = self { return value }
+        if case .text(let value) = self { return value }
         return nil
     }
 
     var int: Int {
         switch self {
-        case let .integer(value): return Int(value)
-        case let .real(value): return Int(value)
+        case .integer(let value): return Int(value)
+        case .real(let value): return Int(value)
         default: return 0
         }
     }
 
     var double: Double? {
         switch self {
-        case let .integer(value): return Double(value)
-        case let .real(value): return value
+        case .integer(let value): return Double(value)
+        case .real(let value): return value
         default: return nil
         }
     }
@@ -50,9 +52,11 @@ private final class SQLiteDatabase {
     private var handle: OpaquePointer?
 
     init(path: URL) throws {
-        let result = sqlite3_open_v2(path.path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
+        let result = sqlite3_open_v2(
+            path.path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
         guard result == SQLITE_OK else {
-            let reason = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unable to open database"
+            let reason =
+                handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unable to open database"
             if let handle { sqlite3_close(handle) }
             self.handle = nil
             throw ToolError.message(reason)
@@ -66,21 +70,30 @@ private final class SQLiteDatabase {
     func rows(_ sql: String, bindings: [String] = []) throws -> [SQLiteRow] {
         guard let handle else { throw ToolError.message("database is closed") }
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement
+        else {
             throw ToolError.message(String(cString: sqlite3_errmsg(handle)))
         }
         defer { sqlite3_finalize(statement) }
 
         for (index, value) in bindings.enumerated() {
-            let result = value.withCString { sqlite3_bind_text(statement, Int32(index + 1), $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }
-            guard result == SQLITE_OK else { throw ToolError.message(String(cString: sqlite3_errmsg(handle))) }
+            let result = value.withCString {
+                sqlite3_bind_text(
+                    statement, Int32(index + 1), $0, -1,
+                    unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            }
+            guard result == SQLITE_OK else {
+                throw ToolError.message(String(cString: sqlite3_errmsg(handle)))
+            }
         }
 
         var resultRows: [SQLiteRow] = []
         while true {
             let result = sqlite3_step(statement)
             if result == SQLITE_DONE { break }
-            guard result == SQLITE_ROW else { throw ToolError.message(String(cString: sqlite3_errmsg(handle))) }
+            guard result == SQLITE_ROW else {
+                throw ToolError.message(String(cString: sqlite3_errmsg(handle)))
+            }
 
             var values: [String: SQLiteValue] = [:]
             for index in 0..<sqlite3_column_count(statement) {
@@ -93,7 +106,10 @@ private final class SQLiteDatabase {
                 case SQLITE_TEXT:
                     let count = Int(sqlite3_column_bytes(statement, index))
                     if let pointer = sqlite3_column_text(statement, index) {
-                        values[name] = .text(String(decoding: UnsafeBufferPointer(start: pointer, count: count), as: UTF8.self))
+                        values[name] = .text(
+                            String(
+                                decoding: UnsafeBufferPointer(start: pointer, count: count),
+                                as: UTF8.self))
                     } else {
                         values[name] = .null
                     }
@@ -114,7 +130,8 @@ private final class SQLiteDatabase {
     }
 
     func tableExists(_ name: String) throws -> Bool {
-        try !rows("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", bindings: [name]).isEmpty
+        try !rows("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", bindings: [name])
+            .isEmpty
     }
 }
 
@@ -122,7 +139,7 @@ private enum ToolError: Error, CustomStringConvertible {
     case message(String)
     var description: String {
         switch self {
-        case let .message(value): return value
+        case .message(let value): return value
         }
     }
 }
@@ -132,16 +149,28 @@ private struct Options {
     var output = "whatsapp_export"
     var utc = false
     var includeStatus = false
+    var stats = false
+    var party: String?
 }
 
 private func usage() -> String {
     """
     Usage: whatsapp-exporter [DB] [-o|--output DIR] [--utc] [--include-status]
-    Export WhatsApp ChatStorage.sqlite to one text file per chat.
+                             [--party NAME] [--stats]
+    Export WhatsApp ChatStorage.sqlite to one text file per chat,
+    or print message statistics instead (--stats).
       DB                     database path (auto-detected if omitted)
       -o, --output DIR       output directory (default: ./whatsapp_export)
-      --utc                  write timestamps in UTC instead of local time
+                             (ignored with --stats)
+      --utc                  use UTC instead of local time (timestamps, day/week/month boundaries)
       --include-status       include status/broadcast pseudo-chats
+      --party NAME           only process one chat. NAME is matched case- and accent-
+                             insensitively against the chat name, phone number or JID;
+                             an exact match wins, otherwise a partial match is accepted
+                             if it is unambiguous. Works with and without --stats.
+      --stats                print the number of messages per sender per day, per ISO
+                             week (Mon-Sun) and per month, instead of exporting files.
+                             Covers every chat unless --party is given.
       -h, --help             show this help
     """
 }
@@ -162,6 +191,11 @@ private func parseArguments() throws -> Options {
             options.utc = true
         case "--include-status":
             options.includeStatus = true
+        case "--stats":
+            options.stats = true
+        case "--party":
+            guard !args.isEmpty else { throw ToolError.message("missing value for \(arg)") }
+            options.party = args.removeFirst()
         default:
             guard !arg.hasPrefix("-"), options.database == nil else {
                 throw ToolError.message("unexpected argument: \(arg)\n\n\(usage())")
@@ -182,21 +216,25 @@ private func resolveDatabase(_ supplied: String?) throws -> URL {
     }
     let home = FileManager.default.homeDirectoryForCurrentUser
     let candidates = [
-        home.appendingPathComponent("Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"),
-        home.appendingPathComponent("Library/Group Containers/group.net.whatsapp.WhatsApp/ChatStorage.sqlite"),
-        URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("ChatStorage.sqlite")
+        home.appendingPathComponent(
+            "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"),
+        home.appendingPathComponent(
+            "Library/Group Containers/group.net.whatsapp.WhatsApp/ChatStorage.sqlite"),
+        URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(
+            "ChatStorage.sqlite"),
     ]
     if let match = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
         return match
     }
     throw ToolError.message(
-        "could not auto-detect ChatStorage.sqlite. Pass its path explicitly. " +
-        "If macOS reports Operation not permitted, grant Full Disk Access to your terminal."
+        "could not auto-detect ChatStorage.sqlite. Pass its path explicitly. "
+            + "If macOS reports Operation not permitted, grant Full Disk Access to your terminal."
     )
 }
 
 private func makeSnapshot(of source: URL) throws -> (URL, URL) {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("wa_export_\(UUID().uuidString)")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "wa_export_\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let destination = directory.appendingPathComponent("ChatStorage.sqlite")
     do {
@@ -204,7 +242,8 @@ private func makeSnapshot(of source: URL) throws -> (URL, URL) {
         for suffix in ["-wal", "-shm"] {
             let sidecar = URL(fileURLWithPath: source.path + suffix)
             if FileManager.default.fileExists(atPath: sidecar.path) {
-                try FileManager.default.copyItem(at: sidecar, to: URL(fileURLWithPath: destination.path + suffix))
+                try FileManager.default.copyItem(
+                    at: sidecar, to: URL(fileURLWithPath: destination.path + suffix))
             }
         }
     } catch {
@@ -234,7 +273,9 @@ private func displayJID(_ jid: String?) -> String {
     let components = jid.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
     let user = String(components[0])
     let server = components.count == 2 ? String(components[1]) : ""
-    if ["s.whatsapp.net", "c.us"].contains(server), user.allSatisfy(\.isNumber) { return "+\(user)" }
+    if ["s.whatsapp.net", "c.us"].contains(server), user.allSatisfy(\.isNumber) {
+        return "+\(user)"
+    }
     return user.isEmpty ? jid : user
 }
 
@@ -254,7 +295,9 @@ private func humanSize(_ number: Double?) -> String {
         value /= 1024
         index += 1
     }
-    return index == 0 ? String(format: "%.0f %@", value, units[index]) : String(format: "%.1f %@", value, units[index])
+    return index == 0
+        ? String(format: "%.0f %@", value, units[index])
+        : String(format: "%.1f %@", value, units[index])
 }
 
 private func messageBody(_ row: SQLiteRow) -> String {
@@ -276,9 +319,31 @@ private func messageBody(_ row: SQLiteRow) -> String {
     }
     let caption = row.text("ZTEXT").flatMap { $0.isEmpty ? nil : $0 } ?? row.text("ZTITLE")
     if let caption, !caption.isEmpty { parts.append(caption) }
-    if let path = row.text("ZMEDIALOCALPATH"), !path.isEmpty { parts.append("(file: \(path))" ) }
-    if type == 6, caption == nil { parts.append("(event code \(row.int("ZGROUPEVENTTYPE")))" ) }
+    if let path = row.text("ZMEDIALOCALPATH"), !path.isEmpty { parts.append("(file: \(path))") }
+    if type == 6, caption == nil { parts.append("(event code \(row.int("ZGROUPEVENTTYPE")))") }
     return parts.isEmpty ? "[Empty message]" : parts.joined(separator: " ")
+}
+
+private func chatTitle(_ chat: SQLiteRow, pushNames: [String: String]) -> String {
+    let jid = chat.text("ZCONTACTJID") ?? ""
+    return chat.text("ZPARTNERNAME").flatMap { $0.isEmpty ? nil : $0 } ?? pushNames[jid]
+        ?? displayJID(jid)
+}
+
+/// Display name of whoever sent `row`. Expects the row to carry ZISFROMME, ZPUSHNAME,
+/// ZMEMBERJID and ZCONTACTNAME (the last two come from the ZWAGROUPMEMBER join).
+private func senderName(row: SQLiteRow, chat: SQLiteRow, pushNames: [String: String]) -> String {
+    if row.int("ZISFROMME") != 0 { return "Me" }
+    if chat.int("ZSESSIONTYPE") == 1 {
+        let memberJID = row.text("ZMEMBERJID") ?? ""
+        return row.text("ZCONTACTNAME").flatMap { $0.isEmpty ? nil : $0 }
+            ?? row.text("ZPUSHNAME").flatMap { $0.isEmpty ? nil : $0 }
+            ?? pushNames[memberJID] ?? displayJID(memberJID)
+    }
+    let jid = chat.text("ZCONTACTJID") ?? ""
+    return chat.text("ZPARTNERNAME").flatMap { $0.isEmpty ? nil : $0 }
+        ?? row.text("ZPUSHNAME").flatMap { $0.isEmpty ? nil : $0 }
+        ?? pushNames[jid] ?? displayJID(jid)
 }
 
 private func exportChat(
@@ -290,9 +355,8 @@ private func exportChat(
     usedNames: inout Set<String>
 ) throws -> Int {
     let sessionType = chat.int("ZSESSIONTYPE")
-    let isGroup = sessionType == 1
     let jid = chat.text("ZCONTACTJID") ?? ""
-    let title = chat.text("ZPARTNERNAME").flatMap { $0.isEmpty ? nil : $0 } ?? pushNames[jid] ?? displayJID(jid)
+    let title = chatTitle(chat, pushNames: pushNames)
     let rows = try database.rows(
         """
         SELECT m.Z_PK, m.ZMESSAGEDATE, m.ZISFROMME, m.ZMESSAGETYPE, m.ZGROUPEVENTTYPE,
@@ -310,7 +374,9 @@ private func exportChat(
     )
 
     let base = safeFilename(title)
-    let suffix = safeFilename(jid.split(separator: "@", maxSplits: 1).first.map(String.init) ?? String(chat.int("Z_PK")), limit: 40)
+    let suffix = safeFilename(
+        jid.split(separator: "@", maxSplits: 1).first.map(String.init) ?? String(chat.int("Z_PK")),
+        limit: 40)
     let stem = "\(base) [\(suffix)]"
     var filename = "\(stem).txt"
     var n = 1
@@ -324,15 +390,15 @@ private func exportChat(
     let lastDate = rows.last.flatMap { date($0.double("ZMESSAGEDATE"), utc: utc) }
     let zone = utc ? "UTC" : (TimeZone.current.abbreviation() ?? "local time")
     var text = """
-    Chat:      \(title)
-    JID:       \(jid)
-    Type:      \(sessionTypes[sessionType] ?? "type \(sessionType)")\(chat.int("ZARCHIVED") != 0 ? " (archived)" : "")
-    Messages:  \(rows.count)
-    Range:     \(formatDate(firstDate, utc: utc)) -> \(formatDate(lastDate, utc: utc)) (\(zone))
-    Exported:  \(formatDate(Date(), utc: false))
-    \(String(repeating: "=", count: 72))
+        Chat:      \(title)
+        JID:       \(jid)
+        Type:      \(sessionTypes[sessionType] ?? "type \(sessionType)")\(chat.int("ZARCHIVED") != 0 ? " (archived)" : "")
+        Messages:  \(rows.count)
+        Range:     \(formatDate(firstDate, utc: utc)) -> \(formatDate(lastDate, utc: utc)) (\(zone))
+        Exported:  \(formatDate(Date(), utc: false))
+        \(String(repeating: "=", count: 72))
 
-    """
+        """
 
     var lastDay: String?
     for row in rows {
@@ -342,20 +408,9 @@ private func exportChat(
             text += "\n--- \(day) ---\n"
             lastDay = day
         }
-        let sender: String
-        if row.int("ZISFROMME") != 0 {
-            sender = "Me"
-        } else if isGroup {
-            let memberJID = row.text("ZMEMBERJID") ?? ""
-            sender = row.text("ZCONTACTNAME").flatMap { $0.isEmpty ? nil : $0 }
-                ?? row.text("ZPUSHNAME").flatMap { $0.isEmpty ? nil : $0 }
-                ?? pushNames[memberJID] ?? displayJID(memberJID)
-        } else {
-            sender = chat.text("ZPARTNERNAME").flatMap { $0.isEmpty ? nil : $0 }
-                ?? row.text("ZPUSHNAME").flatMap { $0.isEmpty ? nil : $0 }
-                ?? pushNames[jid] ?? displayJID(jid)
-        }
-        let body = messageBody(row).replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\n    ")
+        let sender = senderName(row: row, chat: chat, pushNames: pushNames)
+        let body = messageBody(row).replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\n", with: "\n    ")
         let star = row.int("ZSTARRED") != 0 ? " *" : ""
         if [6, 10].contains(row.int("ZMESSAGETYPE")) {
             text += "[\(formatDate(timestamp, utc: utc))] \(body)\(star)\n"
@@ -368,6 +423,262 @@ private func exportChat(
     return rows.count
 }
 
+// MARK: - --party (chat selection)
+
+private func fold(_ value: String) -> String {
+    value.folding(
+        options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil
+    )
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+/// Picks exactly one chat for `--party`. Matches the chat name, the phone number
+/// (digits only, so "+34 600 11 22 33" works) or the JID. An exact match wins over a
+/// partial one; if several chats still match, the user is asked to be more specific.
+private func selectChat(_ chats: [SQLiteRow], party: String, pushNames: [String: String]) throws
+    -> SQLiteRow
+{
+    let needle = fold(party)
+    guard !needle.isEmpty else { throw ToolError.message("--party needs a non-empty value") }
+    let digits = String(party.filter(\.isNumber))
+    let looksLikePhone =
+        !digits.isEmpty && party.allSatisfy { $0.isNumber || " +-().".contains($0) }
+
+    func isExact(_ chat: SQLiteRow) -> Bool {
+        let jid = chat.text("ZCONTACTJID") ?? ""
+        let user =
+            jid.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false).first.map(
+                String.init) ?? ""
+        if fold(chatTitle(chat, pushNames: pushNames)) == needle || fold(jid) == needle
+            || fold(user) == needle
+        {
+            return true
+        }
+        return looksLikePhone && user == digits
+    }
+    func isPartial(_ chat: SQLiteRow) -> Bool {
+        let jid = chat.text("ZCONTACTJID") ?? ""
+        if fold(chatTitle(chat, pushNames: pushNames)).contains(needle)
+            || fold(jid).contains(needle)
+        {
+            return true
+        }
+        let user =
+            jid.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false).first.map(
+                String.init) ?? ""
+        return looksLikePhone && user.contains(digits)
+    }
+
+    var matches = chats.filter(isExact)
+    if matches.isEmpty { matches = chats.filter(isPartial) }
+
+    if matches.count == 1 { return matches[0] }
+    if matches.isEmpty {
+        throw ToolError.message(
+            "no chat matches '\(party)'. Run without --party to see every chat.")
+    }
+    var message = "'\(party)' matches \(matches.count) chats:\n"
+    for chat in matches.prefix(10) {
+        message +=
+            "  - \(chatTitle(chat, pushNames: pushNames))  [\(chat.text("ZCONTACTJID") ?? "?")]\n"
+    }
+    if matches.count > 10 { message += "  ... and \(matches.count - 10) more\n" }
+    message += "Use a longer name, the phone number, or the full JID to pick one."
+    throw ToolError.message(message)
+}
+
+// MARK: - --stats
+
+private struct ChatStats {
+    typealias Buckets = [String: [String: Int]]  // period label -> sender -> messages
+    var daily: Buckets = [:]
+    var weekly: Buckets = [:]
+    var monthly: Buckets = [:]
+    var totals: [String: Int] = [:]
+    var counted = 0
+    var undated = 0
+    var first: Date?
+    var last: Date?
+}
+
+private func dayLabel(_ date: Date, calendar: Calendar) -> String {
+    let c = calendar.dateComponents([.year, .month, .day], from: date)
+    return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+}
+
+private func computeStats(
+    database: SQLiteDatabase,
+    chat: SQLiteRow,
+    pushNames: [String: String],
+    utc: Bool
+) throws -> ChatStats {
+    let rows = try database.rows(
+        """
+        SELECT m.ZMESSAGEDATE, m.ZISFROMME, m.ZMESSAGETYPE, m.ZPUSHNAME,
+               gm.ZMEMBERJID, gm.ZCONTACTNAME
+        FROM ZWAMESSAGE m
+        LEFT JOIN ZWAGROUPMEMBER gm ON gm.Z_PK = m.ZGROUPMEMBER
+        WHERE m.ZCHATSESSION = ?
+        ORDER BY m.ZMESSAGEDATE, m.Z_PK
+        """,
+        bindings: [String(chat.int("Z_PK"))]
+    )
+
+    // ISO 8601 calendar: weeks run Monday-Sunday and week 1 is the one containing the first Thursday.
+    var calendar = Calendar(identifier: .iso8601)
+    calendar.timeZone = utc ? (TimeZone(secondsFromGMT: 0) ?? .current) : .current
+
+    var stats = ChatStats()
+    for row in rows {
+        // System events (group changes, encryption notices...) have no sender: not counted.
+        if [6, 10].contains(row.int("ZMESSAGETYPE")) { continue }
+        guard let timestamp = date(row.double("ZMESSAGEDATE"), utc: utc) else {
+            stats.undated += 1
+            continue
+        }
+        let sender = senderName(row: row, chat: chat, pushNames: pushNames)
+
+        let day = dayLabel(timestamp, calendar: calendar)
+        let month = String(day.prefix(7))
+        let week = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: timestamp)
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: timestamp)?.start ?? timestamp
+        let weekLabel = String(
+            format: "%04d-W%02d (%@)",
+            week.yearForWeekOfYear ?? 0, week.weekOfYear ?? 0,
+            dayLabel(weekStart, calendar: calendar)
+        )
+
+        stats.daily[day, default: [:]][sender, default: 0] += 1
+        stats.weekly[weekLabel, default: [:]][sender, default: 0] += 1
+        stats.monthly[month, default: [:]][sender, default: 0] += 1
+        stats.totals[sender, default: 0] += 1
+        stats.counted += 1
+        if stats.first == nil { stats.first = timestamp }  // rows are ordered by date
+        stats.last = timestamp
+    }
+    return stats
+}
+
+private let matrixSenderLimit = 6
+
+private func padLeft(_ value: String, _ width: Int) -> String {
+    String(repeating: " ", count: max(0, width - value.count)) + value
+}
+
+private func padRight(_ value: String, _ width: Int) -> String {
+    value + String(repeating: " ", count: max(0, width - value.count))
+}
+
+private func clip(_ value: String, _ limit: Int) -> String {
+    value.count <= limit ? value : String(value.prefix(limit - 1)) + "…"
+}
+
+private func byCountThenName(_ a: (key: String, value: Int), _ b: (key: String, value: Int)) -> Bool
+{
+    a.value != b.value ? a.value > b.value : a.key < b.key
+}
+
+/// One section of the report. With few senders: a matrix (one row per period, one column per
+/// sender). With many senders (big groups) a matrix gets too wide, so each period becomes a
+/// small block listing its senders instead.
+private func renderSection(
+    title: String, periodHeader: String, data: ChatStats.Buckets, senders: [String]
+) -> [String] {
+    var lines = ["", title, String(repeating: "-", count: title.count)]
+    let periods = data.keys.sorted()
+
+    if senders.count <= matrixSenderLimit {
+        func cell(_ count: Int) -> String { count == 0 ? "-" : String(count) }
+        let names = senders.map { clip($0, 18) }
+
+        var labelWidth = periodHeader.count
+        for period in periods { labelWidth = max(labelWidth, period.count) }
+        var widths: [Int] = []
+        for (index, sender) in senders.enumerated() {
+            var width = names[index].count
+            for period in periods { width = max(width, cell(data[period]?[sender] ?? 0).count) }
+            widths.append(width)
+        }
+        var totalWidth = "Total".count
+        for period in periods {
+            totalWidth = max(totalWidth, String((data[period] ?? [:]).values.reduce(0, +)).count)
+        }
+
+        var header = padRight(periodHeader, labelWidth)
+        for (index, name) in names.enumerated() { header += "  " + padLeft(name, widths[index]) }
+        header += "  " + padLeft("Total", totalWidth)
+        lines.append(header)
+
+        for period in periods {
+            let counts = data[period] ?? [:]
+            var line = padRight(period, labelWidth)
+            for (index, sender) in senders.enumerated() {
+                line += "  " + padLeft(cell(counts[sender] ?? 0), widths[index])
+            }
+            line += "  " + padLeft(String(counts.values.reduce(0, +)), totalWidth)
+            lines.append(line)
+        }
+    } else {
+        var nameWidth = 0
+        for sender in senders { nameWidth = max(nameWidth, min(sender.count, 30)) }
+        for period in periods {
+            let counts = data[period] ?? [:]
+            lines.append("\(period)  (total \(counts.values.reduce(0, +)))")
+            for (sender, count) in counts.sorted(by: byCountThenName) {
+                let name = padRight(clip(sender, 30), nameWidth)
+                lines.append("    \(name)  \(padLeft(String(count), 5))")
+            }
+        }
+    }
+    return lines
+}
+
+private func statsReport(chat: SQLiteRow, pushNames: [String: String], stats: ChatStats, utc: Bool)
+    -> String
+{
+    let sessionType = chat.int("ZSESSIONTYPE")
+    let senders = stats.totals.sorted(by: byCountThenName).map { $0.key }
+    let zone = utc ? "UTC" : (TimeZone.current.abbreviation() ?? "local time")
+
+    var lines: [String] = [
+        "Chat:      \(chatTitle(chat, pushNames: pushNames))",
+        "JID:       \(chat.text("ZCONTACTJID") ?? "")",
+        "Type:      \(sessionTypes[sessionType] ?? "type \(sessionType)")\(chat.int("ZARCHIVED") != 0 ? " (archived)" : "")",
+        "Messages:  \(stats.counted) from \(senders.count) sender\(senders.count == 1 ? "" : "s") (system events excluded)",
+        "Range:     \(formatDate(stats.first, utc: utc)) -> \(formatDate(stats.last, utc: utc)) (\(zone))",
+    ]
+    if stats.undated > 0 {
+        lines.append("Note:      \(stats.undated) message(s) without a valid date were skipped")
+    }
+    lines.append(String(repeating: "=", count: 72))
+
+    guard stats.counted > 0 else {
+        lines.append("No messages with a sender in this chat.")
+        return lines.joined(separator: "\n")
+    }
+
+    lines.append("")
+    lines.append("Total per sender")
+    lines.append(String(repeating: "-", count: "Total per sender".count))
+    var nameWidth = 0
+    for sender in senders { nameWidth = max(nameWidth, min(sender.count, 30)) }
+    for sender in senders {
+        let count = stats.totals[sender] ?? 0
+        let share = String(format: "%.1f%%", Double(count) * 100 / Double(stats.counted))
+        let name = padRight(clip(sender, 30), nameWidth)
+        lines.append("\(name)  \(padLeft(String(count), 7))  \(padLeft(share, 6))")
+    }
+
+    lines += renderSection(
+        title: "Messages per day", periodHeader: "Date", data: stats.daily, senders: senders)
+    lines += renderSection(
+        title: "Messages per week (ISO, Mon-Sun)", periodHeader: "Week", data: stats.weekly,
+        senders: senders)
+    lines += renderSection(
+        title: "Messages per month", periodHeader: "Month", data: stats.monthly, senders: senders)
+    return lines.joined(separator: "\n")
+}
+
 @main
 private enum WhatsAppExporter {
     static func main() {
@@ -375,23 +686,32 @@ private enum WhatsAppExporter {
             let options = try parseArguments()
             let source = try resolveDatabase(options.database)
             let output = URL(fileURLWithPath: NSString(string: options.output).expandingTildeInPath)
-            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-            print("Reading:  \(source.path)")
+            if options.stats {
+                // Keep stdout clean so the report can be piped or redirected.
+                fputs("Reading:  \(source.path)\n", stderr)
+            } else {
+                try FileManager.default.createDirectory(
+                    at: output, withIntermediateDirectories: true)
+                print("Reading:  \(source.path)")
+            }
             let (temporaryDirectory, snapshot) = try makeSnapshot(of: source)
             defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
             let database = try SQLiteDatabase(path: snapshot)
 
             for table in ["ZWACHATSESSION", "ZWAMESSAGE"] where try !database.tableExists(table) {
-                throw ToolError.message("table \(table) not found - is this a WhatsApp ChatStorage.sqlite?")
+                throw ToolError.message(
+                    "table \(table) not found - is this a WhatsApp ChatStorage.sqlite?")
             }
 
             var pushNames: [String: String] = [:]
             if try database.tableExists("ZWAPROFILEPUSHNAME") {
                 for row in try database.rows("SELECT ZJID, ZPUSHNAME FROM ZWAPROFILEPUSHNAME") {
-                    if let jid = row.text("ZJID"), let name = row.text("ZPUSHNAME") { pushNames[jid] = name }
+                    if let jid = row.text("ZJID"), let name = row.text("ZPUSHNAME") {
+                        pushNames[jid] = name
+                    }
                 }
             }
-            let chats = try database.rows(
+            var chats = try database.rows(
                 """
                 SELECT s.Z_PK, s.ZCONTACTJID, s.ZPARTNERNAME, s.ZSESSIONTYPE, s.ZARCHIVED
                 FROM ZWACHATSESSION s
@@ -399,21 +719,40 @@ private enum WhatsAppExporter {
                 ORDER BY s.ZLASTMESSAGEDATE DESC
                 """
             )
+            if !options.includeStatus {
+                chats.removeAll {
+                    $0.int("ZSESSIONTYPE") == 3 || $0.text("ZCONTACTJID") == "status@broadcast"
+                }
+            }
+            if let party = options.party {
+                chats = [try selectChat(chats, party: party, pushNames: pushNames)]
+            }
+
+            if options.stats {
+                for (index, chat) in chats.enumerated() {
+                    if index > 0 { print("\n") }
+                    let stats = try computeStats(
+                        database: database, chat: chat, pushNames: pushNames, utc: options.utc)
+                    print(
+                        statsReport(
+                            chat: chat, pushNames: pushNames, stats: stats, utc: options.utc))
+                }
+                return
+            }
+
             var usedNames = Set<String>()
             var exported = 0
             var totalMessages = 0
             for chat in chats {
-                if !options.includeStatus,
-                   (chat.int("ZSESSIONTYPE") == 3 || chat.text("ZCONTACTJID") == "status@broadcast") {
-                    continue
-                }
                 totalMessages += try exportChat(
                     database: database, chat: chat, pushNames: pushNames,
                     output: output, utc: options.utc, usedNames: &usedNames
                 )
                 exported += 1
             }
-            print("\nDone: \(exported) chats, \(totalMessages) messages -> \(output.standardizedFileURL.path)")
+            print(
+                "\nDone: \(exported) chats, \(totalMessages) messages -> \(output.standardizedFileURL.path)"
+            )
         } catch {
             fputs("error: \(error)\n", stderr)
             exit(1)
