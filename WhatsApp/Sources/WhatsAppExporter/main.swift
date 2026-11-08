@@ -1,5 +1,6 @@
 import CSQLite
 import Foundation
+import NaturalLanguage
 
 private let appleEpoch = Date(timeIntervalSince1970: 978_307_200)
 private let sessionTypes = [
@@ -151,14 +152,19 @@ private struct Options {
     var includeStatus = false
     var stats = false
     var party: String?
+    var topics = false
+    var language: String?
+    var topicCount = 15
+    var ignore: Set<String> = []
 }
 
 private func usage() -> String {
     """
     Usage: whatsapp-exporter [DB] [-o|--output DIR] [--utc] [--include-status]
-                             [--party NAME] [--stats]
+                             [--party NAME] [--stats] [--topics [N] [--lang CODE]
+                             [--ignore WORD,WORD,...]]
     Export WhatsApp ChatStorage.sqlite to one text file per chat,
-    or print message statistics instead (--stats).
+    or print message statistics (--stats) / the main topics (--topics) instead.
       DB                     database path (auto-detected if omitted)
       -o, --output DIR       output directory (default: ./whatsapp_export)
                              (ignored with --stats)
@@ -171,6 +177,12 @@ private func usage() -> String {
       --stats                print the number of messages per sender per day, per ISO
                              week (Mon-Sun) and per month, instead of exporting files.
                              Covers every chat unless --party is given.
+      --topics [N]           list the N (default 15) most-discussed topics of one chat, with
+                             who talks about them and when. Topics are the most-mentioned
+                             nouns, found on-device with Apple's NaturalLanguage framework.
+                             Needs --party.
+      --lang CODE            language of the chat, e.g. it, en (default: auto-detect)
+      --ignore W1,W2,...     nouns to skip as topics (generic words like "thing", "time")
       -h, --help             show this help
     """
 }
@@ -193,6 +205,20 @@ private func parseArguments() throws -> Options {
             options.includeStatus = true
         case "--stats":
             options.stats = true
+        case "--topics":
+            options.topics = true
+            if let next = args.first, let count = Int(next), count > 0 {
+                options.topicCount = count
+                args.removeFirst()
+            }
+        case "--lang":
+            guard !args.isEmpty else { throw ToolError.message("missing value for \(arg)") }
+            options.language = args.removeFirst()
+        case "--ignore":
+            guard !args.isEmpty else { throw ToolError.message("missing value for \(arg)") }
+            for word in args.removeFirst().split(separator: ",") {
+                options.ignore.insert(fold(String(word)))
+            }
         case "--party":
             guard !args.isEmpty else { throw ToolError.message("missing value for \(arg)") }
             options.party = args.removeFirst()
@@ -202,6 +228,9 @@ private func parseArguments() throws -> Options {
             }
             options.database = arg
         }
+    }
+    if options.topics && options.party == nil {
+        throw ToolError.message("--topics works on a single chat: add --party NAME")
     }
     return options
 }
@@ -679,6 +708,245 @@ private func statsReport(chat: SQLiteRow, pushNames: [String: String], stats: Ch
     return lines.joined(separator: "\n")
 }
 
+// MARK: - --topics (Apple NaturalLanguage noun extraction, fully on-device)
+
+private enum TopicSettings {
+    static let minTopicMessages = 5  // a noun must occur in at least this many messages to be a topic
+    static let maxPartiesShown = 5  // per topic; in big groups the rest are summarised
+    static let languageSampleBytes = 100_000
+    static let exampleLength = 110
+}
+
+private struct TopicMessage {
+    let sender: String
+    let day: String  // yyyy-MM-dd in local time (or UTC with --utc)
+    let text: String
+    let nouns: Set<String>  // distinct nouns (base forms) found in the message
+}
+
+/// Collapses newlines and drops URLs so each message is one clean paragraph.
+private func cleanText(_ raw: String) -> String {
+    raw.components(separatedBy: .newlines)
+        .joined(separator: " ")
+        .split(separator: " ")
+        .filter { !$0.hasPrefix("http") && !$0.hasPrefix("www.") }
+        .joined(separator: " ")
+}
+
+private func percent(_ share: Double) -> String { String(format: "%.0f%%", share * 100) }
+
+private func resolveLanguage(requested: String?, texts: [String]) throws -> (
+    language: NLLanguage, source: String
+) {
+    if let requested {
+        return (NLLanguage(rawValue: requested.lowercased()), "set with --lang")
+    }
+    var sample = ""
+    var bytes = 0
+    for text in texts {
+        sample += text + "\n"
+        bytes += text.utf8.count + 1
+        if bytes >= TopicSettings.languageSampleBytes { break }
+    }
+    let recognizer = NLLanguageRecognizer()
+    recognizer.processString(sample)
+    guard let language = recognizer.dominantLanguage else {
+        throw ToolError.message(
+            "could not detect the chat language; pass it explicitly, e.g. --lang it")
+    }
+    return (language, "auto-detected")
+}
+
+private func extractTopics(
+    database: SQLiteDatabase,
+    chat: SQLiteRow,
+    pushNames: [String: String],
+    options: Options
+) throws -> String {
+    // Plain text messages only (type 0): media, links, stickers and system events carry no usable text.
+    let rows = try database.rows(
+        """
+        SELECT m.ZMESSAGEDATE, m.ZISFROMME, m.ZMESSAGETYPE, m.ZPUSHNAME, m.ZTEXT,
+               gm.ZMEMBERJID, gm.ZCONTACTNAME
+        FROM ZWAMESSAGE m
+        LEFT JOIN ZWAGROUPMEMBER gm ON gm.Z_PK = m.ZGROUPMEMBER
+        WHERE m.ZCHATSESSION = ? AND m.ZMESSAGETYPE = 0 AND m.ZTEXT IS NOT NULL AND m.ZTEXT != ''
+        ORDER BY m.ZMESSAGEDATE, m.Z_PK
+        """,
+        bindings: [String(chat.int("Z_PK"))]
+    )
+
+    var calendar = Calendar(identifier: .iso8601)
+    calendar.timeZone = options.utc ? (TimeZone(secondsFromGMT: 0) ?? .current) : .current
+
+    var prepared: [(row: SQLiteRow, text: String, day: String)] = []
+    for row in rows {
+        guard let timestamp = date(row.double("ZMESSAGEDATE"), utc: options.utc),
+            let raw = row.text("ZTEXT")
+        else { continue }
+        let text = cleanText(raw)
+        if !text.isEmpty {
+            prepared.append((row: row, text: text, day: dayLabel(timestamp, calendar: calendar)))
+        }
+    }
+    guard !prepared.isEmpty else {
+        throw ToolError.message("no analysable text messages in this chat")
+    }
+
+    let (language, languageSource) = try resolveLanguage(
+        requested: options.language, texts: prepared.map { $0.text })
+
+    // Which NaturalLanguage models exist for this language on this macOS?
+    let wordSchemes = NLTagger.availableTagSchemes(for: .word, language: language)
+    let canTagNouns = wordSchemes.contains(.lexicalClass)
+    let canLemmatize = wordSchemes.contains(.lemma)
+    if !canTagNouns {
+        fputs(
+            "warning: no part-of-speech model for '\(language.rawValue)'; falling back to all longer words as topics (low quality)\n",
+            stderr)
+    }
+    let minimumLength = canTagNouns ? 3 : 5
+
+    let wordTagger = NLTagger(tagSchemes: [.lexicalClass, .lemma])
+    var messages: [TopicMessage] = []
+    messages.reserveCapacity(prepared.count)
+
+    for item in prepared {
+        let text = item.text
+        let range = text.startIndex..<text.endIndex
+
+        var nouns = Set<String>()
+        wordTagger.string = text
+        wordTagger.setLanguage(language, range: range)
+        wordTagger.enumerateTags(
+            in: range, unit: .word, scheme: .lexicalClass,
+            options: [.omitPunctuation, .omitWhitespace, .omitOther]
+        ) { tag, tokenRange in
+            if canTagNouns && tag != .noun { return true }
+            var key = String(text[tokenRange])
+            if canLemmatize,
+                let lemma = wordTagger.tag(at: tokenRange.lowerBound, unit: .word, scheme: .lemma)
+                    .0?.rawValue,
+                !lemma.isEmpty
+            {
+                key = lemma
+            }
+            key = key.lowercased()
+            if key.count >= minimumLength,
+                !key.contains(where: \.isNumber),
+                !options.ignore.contains(fold(key))
+            {
+                nouns.insert(key)
+            }
+            return true
+        }
+
+        messages.append(
+            TopicMessage(
+                sender: senderName(row: item.row, chat: chat, pushNames: pushNames),
+                day: item.day, text: text, nouns: nouns
+            ))
+    }
+
+    return topicsReport(
+        chat: chat, pushNames: pushNames, messages: messages,
+        language: language, languageSource: languageSource,
+        limit: options.topicCount, utc: options.utc
+    )
+}
+
+private func topicsReport(
+    chat: SQLiteRow,
+    pushNames: [String: String],
+    messages: [TopicMessage],
+    language: NLLanguage,
+    languageSource: String,
+    limit: Int,
+    utc: Bool
+) -> String {
+    let languageName =
+        Locale(identifier: "en").localizedString(forLanguageCode: language.rawValue)
+        ?? language.rawValue
+    let zone = utc ? "UTC" : (TimeZone.current.abbreviation() ?? "local time")
+    var lines: [String] = [
+        "Chat:      \(chatTitle(chat, pushNames: pushNames))",
+        "JID:       \(chat.text("ZCONTACTJID") ?? "")",
+        "Topics:    NaturalLanguage noun extraction, on-device | language: \(languageName) (\(languageSource))",
+        "Messages:  \(messages.count) text messages analysed (media, link-only and system messages skipped)",
+        "Range:     \(messages.first?.day ?? "?") -> \(messages.last?.day ?? "?") (\(zone))",
+        String(repeating: "=", count: 72),
+    ]
+
+    // noun -> positions in `messages` (already in chronological order)
+    var mentions: [String: [Int]] = [:]
+    for (index, message) in messages.enumerated() {
+        for noun in message.nouns { mentions[noun, default: []].append(index) }
+    }
+    let ranked =
+        mentions
+        .filter { $0.value.count >= TopicSettings.minTopicMessages }
+        .sorted { left, right in
+            left.value.count != right.value.count
+                ? left.value.count > right.value.count : left.key < right.key
+        }
+        .prefix(limit)
+
+    guard !ranked.isEmpty else {
+        lines.append(
+            "No noun appears in at least \(TopicSettings.minTopicMessages) messages; nothing to report."
+        )
+        return lines.joined(separator: "\n")
+    }
+
+    lines.append(
+        "Top \(ranked.count) topics: nouns found in the most messages (a message counts once per topic)"
+    )
+
+    for (rank, entry) in ranked.enumerated() {
+        let indices = entry.value
+        var perSender: [String: Int] = [:]
+        var perMonth: [String: Int] = [:]
+        for index in indices {
+            perSender[messages[index].sender, default: 0] += 1
+            perMonth[String(messages[index].day.prefix(7)), default: 0] += 1
+        }
+        let firstDay = indices.first.map { messages[$0].day } ?? "?"
+        let lastDay = indices.last.map { messages[$0].day } ?? "?"
+        let peak = perMonth.sorted(by: byCountThenName).first
+        let peakText = peak.map { "peak \($0.key) (\($0.value))" } ?? ""
+
+        lines.append("")
+        lines.append(
+            "\(padLeft(String(rank + 1), 2)). \(entry.key)  -  \(indices.count) messages  |  \(firstDay) -> \(lastDay)  |  \(peakText)"
+        )
+
+        let senders = perSender.sorted(by: byCountThenName)
+        var parts: [String] = []
+        for (sender, count) in senders.prefix(TopicSettings.maxPartiesShown) {
+            parts.append(
+                "\(clip(sender, 18)) \(count) (\(percent(Double(count) / Double(indices.count))))")
+        }
+        if senders.count > TopicSettings.maxPartiesShown {
+            parts.append("+\(senders.count - TopicSettings.maxPartiesShown) more")
+        }
+        lines.append("      \(parts.joined(separator: ", "))")
+
+        // One example so the topic can be sanity-checked: the longest message mentioning it.
+        if let example = indices.map({ messages[$0] }).max(by: { $0.text.count < $1.text.count }) {
+            lines.append(
+                "      e.g. [\(example.day)] \(clip(example.sender, 18)): \"\(clip(example.text, TopicSettings.exampleLength))\""
+            )
+        }
+    }
+
+    lines.append("")
+    lines.append(
+        "Topics are single nouns (base forms) found by NaturalLanguage's part-of-speech tagger.")
+    lines.append(
+        "Hide generic words with --ignore word1,word2 ; change the list length with --topics N.")
+    return lines.joined(separator: "\n")
+}
+
 @main
 private enum WhatsAppExporter {
     static func main() {
@@ -686,7 +954,7 @@ private enum WhatsAppExporter {
             let options = try parseArguments()
             let source = try resolveDatabase(options.database)
             let output = URL(fileURLWithPath: NSString(string: options.output).expandingTildeInPath)
-            if options.stats {
+            if options.stats || options.topics {
                 // Keep stdout clean so the report can be piped or redirected.
                 fputs("Reading:  \(source.path)\n", stderr)
             } else {
@@ -728,14 +996,23 @@ private enum WhatsAppExporter {
                 chats = [try selectChat(chats, party: party, pushNames: pushNames)]
             }
 
-            if options.stats {
+            if options.stats || options.topics {
                 for (index, chat) in chats.enumerated() {
                     if index > 0 { print("\n") }
-                    let stats = try computeStats(
-                        database: database, chat: chat, pushNames: pushNames, utc: options.utc)
-                    print(
-                        statsReport(
-                            chat: chat, pushNames: pushNames, stats: stats, utc: options.utc))
+                    if options.stats {
+                        let stats = try computeStats(
+                            database: database, chat: chat, pushNames: pushNames, utc: options.utc)
+                        print(
+                            statsReport(
+                                chat: chat, pushNames: pushNames, stats: stats, utc: options.utc))
+                    }
+                    if options.topics {
+                        if options.stats { print("\n") }
+                        print(
+                            try extractTopics(
+                                database: database, chat: chat, pushNames: pushNames,
+                                options: options))
+                    }
                 }
                 return
             }
