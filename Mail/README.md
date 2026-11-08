@@ -30,6 +30,9 @@ mail-utils export --party alice@example.com --from 2024-01-01 --to 2024-12-31 -o
 # Same threads as browsable HTML pages (or --format both for .md and .html side by side)
 mail-utils export --party alice@example.com --format html -o ~/Desktop/alice-html
 
+# Within those threads, keep only the emails that actually involve alice
+mail-utils export --party alice@example.com --only
+
 # Threads involving both addresses
 mail-utils export --party alice@example.com --party bob@example.org
 
@@ -44,6 +47,7 @@ mail-utils export --mail-directory /Volumes/Backup/Library/Mail/V10
 | `-m, --mail-directory <path>` | A `V*` folder (e.g. `~/Library/Mail/V10`) or its parent. Default: newest `~/Library/Mail/V*`. |
 | `--from <date>` / `--to <date>` | Date window on email timestamps. `YYYY-MM-DD` (local time; `--to` includes the whole day) or ISO 8601 date-time. A thread keeps only its emails inside the window, and its counts and timestamps describe that window. |
 | `--party <address>` | Only threads in which this address took part, as sender, To, Cc or Bcc of any email. The whole thread is kept, including emails between other people. Repeat the option to require all of the addresses. |
+| `--only` | Needs `--party`. Within each thread, keeps only the emails that feature the party address in From, To, Cc or Bcc; emails of the same thread between other people are left out. With several `--party` options an email must feature all of them. Emails, timestamps, participants and per-participant counts then describe just the emails kept. |
 | `--min-messages <n>` | Skip threads with fewer than *n* emails. |
 | `--include-deleted` | Include emails Mail has flagged as deleted. |
 
@@ -74,7 +78,7 @@ mail-export/
     └── 2024-03-05_142210_invoice-march_thread1260.md
 ```
 
-The subfolder is the address as given (lowercased). With several `--party` options the addresses are joined with `__` (`alice@example.com__bob@example.org`), and without `--party` the folder is called `all`. Each folder has its own `index` listing only its threads. Re-running with the same party overwrites files with the same names; delete the folder first if you changed the filters and want a clean result.
+The subfolder is the address as given (lowercased); with `--only` it gets an `__only` suffix (`alice@example.com__only`) so a filtered export never mixes with a full export of the same person. With several `--party` options the addresses are joined with `__` (`alice@example.com__bob@example.org`), and without `--party` the folder is called `all`. Each folder has its own `index` listing only its threads. Re-running with the same party overwrites files with the same names; delete the folder first if you changed the filters and want a clean result.
 
 Each thread file starts with a summary, then the emails in chronological order:
 
@@ -105,6 +109,18 @@ Each thread file starts with a summary, then the emails in chronological order:
 - Emails are grouped by Mail's `conversation_id`. An email Mail did not assign to a conversation becomes a one-email thread (file name ends in `msg<id>`).
 - The body is in a fenced `text` block so quoting and line wraps survive intact. HTML-only emails are converted to plain text. The subject is repeated under an email's heading only when it differs from the thread's beyond a `Re:`/`Fwd:` prefix.
 - The same email filed in several mailboxes is exported once.
+
+## What `--only` does
+
+Take a thread with four emails: alice writes to bob, bob writes to carol, carol writes to alice and bob (Cc), and bob writes to carol again.
+
+| | Emails kept | Participants |
+|---|---|---|
+| `--party alice` | all 4 | alice, bob, carol |
+| `--party alice --only` | the 1st and the 3rd, the two that list alice | alice, bob, carol |
+| `--party alice --party bob --only` | the 1st and the 3rd, the two that list both | alice, bob, carol |
+
+With `--only` the thread file, the index and `list` all describe the emails kept: the email count, the earliest and latest timestamp, the participants and the "emails sent" table. A thread in which the address appears on no email at all disappears from the result, as it does without `--only`. `--min-messages` is applied after the narrowing.
 
 ## HTML output
 

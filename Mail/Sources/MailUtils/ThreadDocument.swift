@@ -84,7 +84,8 @@ enum TextTools {
         let collapsed = oneLine(subject)
         guard let regex = replyPrefix else { return collapsed.lowercased() }
         let range = NSRange(location: 0, length: (collapsed as NSString).length)
-        return regex.stringByReplacingMatches(in: collapsed, range: range, withTemplate: "").lowercased()
+        return regex.stringByReplacingMatches(in: collapsed, range: range, withTemplate: "")
+            .lowercased()
     }
 
     static func slug(_ text: String, limit: Int = 60) -> String {
@@ -105,15 +106,18 @@ enum TextTools {
     }
 
     /// Folder for an export: the searched-for address(es), or "all" when no --party was given.
-    /// Several addresses are joined with "__".
-    static func folderName(forParties parties: [String]) -> String {
+    /// Several addresses are joined with "__". `--only` exports get an "__only" suffix so they never
+    /// mix with a full export of the same party.
+    static func folderName(forParties parties: [String], only: Bool = false) -> String {
         guard !parties.isEmpty else { return "all" }
         var forbidden = CharacterSet(charactersIn: "/\\:*?\"<>|\0")
         forbidden.formUnion(.controlCharacters)
-        var cleaned = parties.joined(separator: "__").components(separatedBy: forbidden).joined(separator: "_")
+        var cleaned = parties.joined(separator: "__").components(separatedBy: forbidden).joined(
+            separator: "_")
         while cleaned.hasPrefix(".") { cleaned.removeFirst() }
         cleaned = String(cleaned.prefix(120))
-        return cleaned.isEmpty ? "all" : cleaned
+        if cleaned.isEmpty { return "all" }
+        return only ? cleaned + "__only" : cleaned
     }
 
     /// Recipients grouped by role, empty groups omitted.

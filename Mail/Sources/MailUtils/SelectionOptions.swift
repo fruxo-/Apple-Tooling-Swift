@@ -3,19 +3,34 @@ import Foundation
 
 /// Options that decide *which* correspondence is selected. Shared by `export` and `list`.
 struct SelectionOptions: ParsableArguments {
-    @Option(name: .shortAndLong,
-            help: "Mail data directory: a version folder such as ~/Library/Mail/V10, or its parent. Defaults to the newest ~/Library/Mail/V*.")
+    @Option(
+        name: .shortAndLong,
+        help:
+            "Mail data directory: a version folder such as ~/Library/Mail/V10, or its parent. Defaults to the newest ~/Library/Mail/V*."
+    )
     var mailDirectory: String?
 
-    @Option(help: "Only emails on or after this date. YYYY-MM-DD (local time) or an ISO 8601 date-time. Threads keep only their emails inside the window.")
+    @Option(
+        help:
+            "Only emails on or after this date. YYYY-MM-DD (local time) or an ISO 8601 date-time. Threads keep only their emails inside the window."
+    )
     var from: DateInput?
 
     @Option(help: "Only emails on or before this date. A bare YYYY-MM-DD includes that whole day.")
     var to: DateInput?
 
-    @Option(name: .customLong("party"),
-            help: "Only threads in which this address took part, as sender, To, Cc or Bcc of any email. Give it more than once to require all of those addresses.")
+    @Option(
+        name: .customLong("party"),
+        help:
+            "Only threads in which this address took part, as sender, To, Cc or Bcc of any email. Give it more than once to require all of those addresses."
+    )
     var parties: [String] = []
+
+    @Flag(
+        help:
+            "With --party: within each thread, keep only the emails that feature the party address in From, To, Cc or Bcc (with several --party options, an email must feature all of them). Counts, timestamps and participants then describe just those emails."
+    )
+    var only = false
 
     @Option(help: "Skip threads with fewer than this many emails.")
     var minMessages: Int = 1
@@ -24,6 +39,9 @@ struct SelectionOptions: ParsableArguments {
     var includeDeleted = false
 
     mutating func validate() throws {
+        if only && parties.isEmpty {
+            throw ValidationError("--only needs at least one --party.")
+        }
         if minMessages < 1 {
             throw ValidationError("--min-messages must be at least 1.")
         }
@@ -61,7 +79,9 @@ extension SelectionOptions {
         if let toValue = self.to {
             var end = toValue.date
             if toValue.dateOnly {
-                end = Calendar.current.date(byAdding: .day, value: 1, to: end) ?? end.addingTimeInterval(86_400)
+                end =
+                    Calendar.current.date(byAdding: .day, value: 1, to: end)
+                    ?? end.addingTimeInterval(86_400)
             }
             upper = Int64(end.timeIntervalSince1970.rounded(.down)) - (toValue.dateOnly ? 1 : 0)
             rangeParts.append("to \(toValue.text)")
@@ -71,7 +91,8 @@ extension SelectionOptions {
         do {
             snapshot = try DatabaseSnapshot.make(from: location.databaseURL)
         } catch {
-            throw ExportError.io("""
+            throw ExportError.io(
+                """
                 Could not copy \(location.databaseURL.path): \(error.localizedDescription)
                 If this is a permissions error, grant Full Disk Access to your terminal \
                 (System Settings > Privacy & Security > Full Disk Access) and try again.
@@ -81,7 +102,7 @@ extension SelectionOptions {
 
         let database = try SQLiteConnection(path: snapshot.databaseURL.path, readOnly: false)
         let query = MailQuery(from: lower, to: upper, includeDeleted: includeDeleted)
-        let messages = try MailStore.loadMessages(from: database, query: query)
+        var messages = try MailStore.loadMessages(from: database, query: query)
         Log.info("Loaded \(messages.count) messages in range")
 
         let partySet = Set(
@@ -89,6 +110,15 @@ extension SelectionOptions {
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
                 .filter { !$0.isEmpty }
         )
+
+        if only {
+            // Narrow to the emails that feature every --party address in From, To, Cc or Bcc.
+            messages = messages.filter { partySet.isSubset(of: $0.involvedAddresses) }
+            Log.info(
+                "Kept \(messages.count) emails featuring \(partySet.sorted().joined(separator: ", "))"
+            )
+        }
+
         let threads = MailThread.build(from: messages, parties: partySet, minMessages: minMessages)
 
         return LoadedMail(

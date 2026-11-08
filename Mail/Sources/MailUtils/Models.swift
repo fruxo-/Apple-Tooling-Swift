@@ -35,13 +35,16 @@ struct MailLocation {
         let fileManager = FileManager.default
         let base: URL
         if let override {
-            base = URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: true)
+            base = URL(
+                fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: true)
         } else {
-            base = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Mail", isDirectory: true)
+            base = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(
+                "Library/Mail", isDirectory: true)
         }
 
         func hasDatabase(_ directory: URL) -> Bool {
-            fileManager.fileExists(atPath: directory.appendingPathComponent("MailData/Envelope Index").path)
+            fileManager.fileExists(
+                atPath: directory.appendingPathComponent("MailData/Envelope Index").path)
         }
 
         if hasDatabase(base) {
@@ -62,7 +65,8 @@ struct MailLocation {
             }
         }
 
-        throw ExportError.mailNotFound("""
+        throw ExportError.mailNotFound(
+            """
             Could not find Mail's "MailData/Envelope Index" under \(base.path).
             If that is the default location, your terminal probably lacks Full Disk Access \
             (System Settings > Privacy & Security > Full Disk Access). \
@@ -102,6 +106,13 @@ struct Message {
 
     var primaryRowID: Int64 { copies[0].rowID }
     var date: Date { Date(timeIntervalSince1970: TimeInterval(timestamp)) }
+
+    /// Everyone on the email: the sender plus all To, Cc and Bcc recipients (lowercased).
+    var involvedAddresses: Set<String> {
+        var addresses: Set<String> = [senderEmail]
+        for recipient in recipients { addresses.insert(recipient.email) }
+        return addresses
+    }
 }
 
 // MARK: - Date formatting (always UTC)
@@ -156,7 +167,9 @@ extension MailThread {
     /// - Parameter parties: if not empty, only threads in which *every* one of these addresses took part
     ///   (as sender, To, Cc or Bcc of any email) are kept.
     /// - Parameter minMessages: threads with fewer emails are dropped.
-    static func build(from messages: [Message], parties: Set<String>, minMessages: Int) -> [MailThread] {
+    static func build(from messages: [Message], parties: Set<String>, minMessages: Int)
+        -> [MailThread]
+    {
         var order: [Int64] = []
         var buckets: [Int64: [Int]] = [:]
 
@@ -200,7 +213,8 @@ extension MailThread {
             }
         }
 
-        return seen
+        return
+            seen
             .map { ThreadParticipant(email: $0, sent: sent[$0] ?? 0) }
             .sorted { $0.sent != $1.sent ? $0.sent > $1.sent : $0.email < $1.email }
     }
