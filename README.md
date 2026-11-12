@@ -17,14 +17,7 @@ Exports WhatsApp chats to one UTF-8 text file per chat. If no database path is
 given, the executable checks the standard WhatsApp Desktop locations and then
 `./ChatStorage.sqlite`.
 
-```sh
-cd WhatsApp
-swift build -c release
-.build/release/whatsapp-exporter --help
-.build/release/whatsapp-exporter /path/to/ChatStorage.sqlite -o ~/Desktop/whatsapp-export
-```
-
-Options include `--utc` and `--include-status`.
+More in its [README.md](./WhatsApp/README.md).
 
 ## Messages exporter
 
@@ -32,16 +25,7 @@ Exports macOS Messages conversations from `chat.db`, merging threads with the
 same identifier. If no database path is given, the executable checks
 `~/Library/Messages/chat.db` and then `./chat.db`.
 
-```sh
-cd Messages
-swift build -c release
-.build/release/messages-exporter --help
-.build/release/messages-exporter ~/Library/Messages/chat.db --out ~/Desktop/messages-export
-.build/release/messages-exporter --out ~/Desktop/messages-export
-```
-
-Use `--me NAME` to change the label for your own messages and
-`--oldest-first` to reverse the default newest-first order.
+More in its [README.md](./Messages/README.md).
 
 ## Safari tabs backup
 
