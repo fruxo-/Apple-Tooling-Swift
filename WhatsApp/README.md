@@ -19,6 +19,7 @@ and the topic extraction uses Apple's on-device NaturalLanguage framework (no cl
 - [Where the database lives](#where-the-database-lives)
 - [Quick start](#quick-start)
 - [Command-line reference](#command-line-reference)
+- [Shared CLI with messages-exporter](#shared-cli-with-messages-exporter)
 - [Selecting a chat with `--party`](#selecting-a-chat-with---party)
 - [Export mode](#export-mode)
 - [Statistics mode (`--stats`)](#statistics-mode---stats)
@@ -79,8 +80,11 @@ backup that uses the same Core Data schema.
 ## Quick start
 
 ```bash
-# Export all chats to ./whatsapp_export/
+# Export all chats to ./whatsapp_export/ (newest message first)
 whatsapp-exporter
+
+# Same, but oldest message first, with "Marco" as the label for your own messages
+whatsapp-exporter --oldest-first --me Marco
 
 # Message counts per sender (daily / weekly / monthly) for one chat
 whatsapp-exporter --stats --party "Ana"
@@ -95,18 +99,20 @@ whatsapp-exporter --stats --topics --party "Ana" > ana-report.txt
 ## Command-line reference
 
 ```
-whatsapp-exporter [DB] [-o|--output DIR] [--utc] [--include-status]
-                  [--party NAME] [--stats] [--topics [N] [--lang CODE]
-                  [--ignore WORD,WORD,...]]
+whatsapp-exporter [DB] [-o|--output DIR] [--me NAME] [--oldest-first] [--utc]
+                  [--include-status] [--party NAME] [--stats]
+                  [--topics [N]] [--lang CODE] [--ignore WORD,WORD,...]
 ```
 
 | Option | Description |
 | --- | --- |
 | `DB` | Path to `ChatStorage.sqlite`. Auto-detected if omitted (see above). |
-| `-o`, `--output DIR` | Output directory for the export (default `./whatsapp_export`). Ignored with `--stats` / `--topics`. |
+| `-o`, `--output DIR` | Output directory for the export (default `./whatsapp_export`). `--out` is accepted as an alias. Ignored with `--stats` / `--topics`. |
+| `--me NAME` | Label for your own messages in exports and reports (default `Me`). |
+| `--oldest-first` | Export messages oldest to newest. The default is **newest first**. Affects the export only. |
 | `--utc` | Use UTC instead of local time, both for timestamps and for day/week/month boundaries. |
-| `--include-status` | Include status/broadcast pseudo-chats (skipped by default). |
-| `--party NAME` | Process only one chat. Matches the chat name, phone number or JID. See [below](#selecting-a-chat-with---party). Works with and without `--stats`. |
+| `--include-status` | Include status/broadcast pseudo-chats (skipped by default). WhatsApp only: `messages-exporter` accepts and ignores it. |
+| `--party NAME` | Process only one chat. Matches the chat name, phone number or JID (the chat ID). See [below](#selecting-a-chat-with---party). Works with and without `--stats`. |
 | `--stats` | Print message counts per sender per day, ISO week and month instead of exporting. Covers every chat unless `--party` is given. |
 | `--topics [N]` | Print the `N` (default 15) most-discussed topics of one chat. **Requires `--party`.** |
 | `--lang CODE` | Language of the chat for `--topics`, e.g. `it`, `en`, `es` (default: auto-detect). |
@@ -119,6 +125,29 @@ Notes:
 - In `--stats` / `--topics` mode the report goes to **stdout** and the `Reading: ...` line goes to
   **stderr**, so redirecting (`> file.txt`) captures a clean report.
 - Errors are printed to stderr as `error: ...` and the exit status is `1`.
+
+## Shared CLI with messages-exporter
+
+`whatsapp-exporter` and its sibling `messages-exporter` (Apple Messages / iMessage) accept
+**exactly the same options**, with the same meaning and the same help text (apart from the program
+name, the source database and the default output directory). Commands therefore transfer 1:1:
+
+```bash
+whatsapp-exporter --stats --party "Ana" --utc
+messages-exporter --stats --party "+39 333 123 4567" --utc
+```
+
+Differences that come from the data, not from the options:
+
+| | whatsapp-exporter | messages-exporter |
+| --- | --- | --- |
+| Source database | `ChatStorage.sqlite` | `chat.db` |
+| Chat names | contact names from WhatsApp | numbers, e-mails and group names only (no Contacts lookup) |
+| `--include-status` | includes status pseudo-chats | accepted, no effect |
+| Transcript layout | header with `JID`/`Range`, day separators, one line per message | header with participants, blank-line-separated messages |
+| `--party` ID | JID / phone number | chat identifier / phone number / e-mail |
+
+When you add or change an option, change it in both tools so the contract stays identical.
 
 ## Selecting a chat with `--party`
 
@@ -146,9 +175,10 @@ Two chats with the same title can always be told apart by JID or phone number.
 Run with no mode flag to write one UTF-8 text file per chat:
 
 ```bash
-whatsapp-exporter                       # auto-detect DB, write to ./whatsapp_export
+whatsapp-exporter                       # auto-detect DB, write to ./whatsapp_export, newest first
 whatsapp-exporter ~/ChatStorage.sqlite -o ~/Desktop/chats --utc
 whatsapp-exporter --party "Family"      # export just one chat
+whatsapp-exporter --oldest-first        # chronological transcripts
 ```
 
 Console output lists each file with its message count, then a summary:
@@ -173,16 +203,22 @@ JID:       34600111222@s.whatsapp.net
 Type:      individual
 Messages:  1234
 Range:     2025-01-03 09:12:44 -> 2026-11-08 08:01:10 (CET)
+Order:     newest first
 Exported:  2026-11-08 12:00:00
 ========================================================================
 
+--- 2025-01-04 ---
+[2025-01-04 08:02:11] Ana López: Good morning!
+
 --- 2025-01-03 ---
-[2025-01-03 09:12:44] Me: Hello!
-[2025-01-03 09:13:02] Ana López: Hi, how are you?
-[2025-01-03 09:13:40] Me: [Image: 1.2 MB] Look at this (file: Media/...jpg) *
 [2025-01-03 09:14:00] [System message] Messages and calls are end-to-end encrypted.
+[2025-01-03 09:13:40] Me: [Image: 1.2 MB] Look at this (file: Media/...jpg) *
+[2025-01-03 09:13:02] Ana López: Hi, how are you?
+[2025-01-03 09:12:44] Me: Hello!
 ```
 
+- Messages are listed **newest first** by default (as in the sample above); `--oldest-first`
+  reverses this. The `Order:` header line says which one was used.
 - A date separator is written whenever the day changes.
 - A trailing ` *` marks a **starred** message.
 - Multi-line messages are indented under their first line.
@@ -195,7 +231,7 @@ System/group event. Unknown types appear as `[Type N]`.
 
 Sender names are resolved in this order: the saved contact / partner name, the message's push
 name (the name the person set for themselves), the profile push-name table, and finally the phone
-number (`+34...`). Your own messages are labelled `Me`.
+number (`+34...`). Your own messages are labelled `Me`, or whatever you pass to `--me`.
 
 ## Statistics mode (`--stats`)
 
@@ -382,6 +418,7 @@ Dates are Core Data timestamps: seconds since **2001-01-01 UTC**.
 3. In `WhatsAppExporter.main`, add the mode next to the `--stats` / `--topics` branch (the chats
    have already been filtered and, if requested, narrowed down by `--party` at that point).
 4. Reuse `senderName` / `chatTitle` so every mode names people the same way.
+5. Make the same change in `messages-exporter` (options, help text and parser are meant to stay identical).
 
 ## Known limitations
 
