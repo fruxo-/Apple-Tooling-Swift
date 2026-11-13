@@ -17,7 +17,7 @@ jobs:
         package: [Messages, Safari, VoiceMemos, WhatsApp]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Build
       working-directory: ${{ matrix.package }}
       run: swift build -c release -v
