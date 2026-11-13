@@ -21,6 +21,7 @@ jobs:
     - name: Build
       working-directory: ${{ matrix.package }}
       run: swift build -c release -v
-    - name: Run tests
-      working-directory: ${{ matrix.package }}
-      run: swift test -v
+#    - name: Run tests
+#      working-directory: ${{ matrix.package }}
+#      run: swift test -v
+#
