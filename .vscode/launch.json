@@ -1,0 +1,164 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/WhatsApp",
+            "name": "Debug whatsapp-exporter (WhatsApp)",
+            "target": "whatsapp-exporter",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whatsapp-exporter (WhatsApp)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/WhatsApp",
+            "name": "Release whatsapp-exporter (WhatsApp)",
+            "target": "whatsapp-exporter",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whatsapp-exporter (WhatsApp)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/Messages",
+            "name": "Debug messages-exporter (Messages)",
+            "target": "messages-exporter",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug messages-exporter (Messages)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/Messages",
+            "name": "Release messages-exporter (Messages)",
+            "target": "messages-exporter",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release messages-exporter (Messages)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/VoiceMemos",
+            "name": "Debug VoiceMemosUtils (VoiceMemos)",
+            "target": "VoiceMemosUtils",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug VoiceMemosUtils (VoiceMemos)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/VoiceMemos",
+            "name": "Release VoiceMemosUtils (VoiceMemos)",
+            "target": "VoiceMemosUtils",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release VoiceMemosUtils (VoiceMemos)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/VoiceMemos",
+            "name": "Debug vmsearch (VoiceMemos)",
+            "target": "vmsearch",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug vmsearch (VoiceMemos)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/VoiceMemos",
+            "name": "Release vmsearch (VoiceMemos)",
+            "target": "vmsearch",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release vmsearch (VoiceMemos)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/VoiceMemos",
+            "name": "Debug voice-memos-utils (VoiceMemos)",
+            "target": "voice-memos-utils",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug voice-memos-utils (VoiceMemos)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/VoiceMemos",
+            "name": "Release voice-memos-utils (VoiceMemos)",
+            "target": "voice-memos-utils",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release voice-memos-utils (VoiceMemos)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/Mail",
+            "name": "Debug mailexport (Mail)",
+            "target": "mailexport",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug mailexport (Mail)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/Mail",
+            "name": "Release mailexport (Mail)",
+            "target": "mailexport",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release mailexport (Mail)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/Mail",
+            "name": "Debug mail-export (Mail)",
+            "target": "mail-export",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug mail-export (Mail)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/Mail",
+            "name": "Release mail-export (Mail)",
+            "target": "mail-export",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release mail-export (Mail)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/Mail",
+            "name": "Debug mail-utils (Mail)",
+            "target": "mail-utils",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug mail-utils (Mail)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Apple-Tooling-Swift}/Mail",
+            "name": "Release mail-utils (Mail)",
+            "target": "mail-utils",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release mail-utils (Mail)"
+        }
+    ]
+}
