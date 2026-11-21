@@ -96,7 +96,7 @@ safari-tabs-backup --backup-dir ~/Backups/SafariTabs --snapshot-dir ~/.cache/saf
 safari-tabs-backup --database /path/to/SafariTabs.db
 ```
 
-Run `safari-tabs-backup --help` for all options. This tool has no separate README; the options above are the full interface.
+More in [Safari/README.md](./Safari/README.md).
 
 ## Voice Memos
 
