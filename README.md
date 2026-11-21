@@ -1,83 +1,146 @@
 # Apple Tooling (Swift)
 
-Standalone Swift Package Manager command-line tools for exporting or backing up
-Apple app data. Each executable has its own package manifest and can be built,
-installed, archived, and released independently.
+Standalone Swift Package Manager command-line tools for exporting, searching or backing up the data of Apple apps (and WhatsApp) on macOS. Every tool lives in its own folder with its own `Package.swift`, so it can be built, installed and released independently.
+
+| Tool | Command | What it does |
+| --- | --- | --- |
+| [Mail](#mail) | `mail-utils` | Export Mail conversations as Markdown/HTML threads |
+| [Messages](#messages) | `messages-exporter` | Export iMessage/SMS chats, count messages, find topics |
+| [Safari](#safari) | `safari-tabs-backup` | Incrementally back up Safari's tab groups |
+| [Voice Memos](#voice-memos) | `voice-memos-utils` | Find recordings by date and title |
+| [WhatsApp](#whatsapp) | `whatsapp-exporter` | Export WhatsApp chats, count messages, find topics |
 
 ## Requirements
 
-- macOS
-- Swift 5.9 or newer
-- Full Disk Access for the terminal or process reading the app databases
-- `rsync` for incremental Safari snapshot synchronization
+- macOS 13 or later
+- Swift 5.9 or newer (Voice Memos needs the Swift 6.0 toolchain, i.e. Xcode 16)
+- **Full Disk Access** for the terminal running the tool: System Settings > Privacy & Security > Full Disk Access
+- `rsync` (Safari backup only)
 
-## WhatsApp chat exporter
+## Build
 
-Exports WhatsApp chats to one UTF-8 text file per chat. If no database path is
-given, the executable checks the standard WhatsApp Desktop locations and then
-`./ChatStorage.sqlite`.
-
-More in its [README.md](./WhatsApp/README.md).
-
-## Messages exporter
-
-Exports macOS Messages conversations from `chat.db`, merging threads with the
-same identifier. If no database path is given, the executable checks
-`~/Library/Messages/chat.db` and then `./chat.db`.
-
-More in its [README.md](./Messages/README.md).
-
-## Safari tabs backup
-
-Creates a consistent SQLite snapshot of Safari's tabs database, compares its
-content (excluding volatile SQLite header counters) with the last successful
-snapshot, and uses `rsync` to incrementally synchronize changed snapshots.
-Defaults match the original script's locations under `~/Library`.
+Each tool is built from its own folder:
 
 ```sh
-cd Safari
+cd <Mail|Messages|Safari|VoiceMemos|WhatsApp>
 swift build -c release
-.build/release/safari-tabs-backup --help
-.build/release/safari-tabs-backup
+.build/release/<command> --help
 ```
 
-Use `--database`, `--backup-dir`, `--snapshot-dir`, and `--log-dir` to override
-the default paths. Each package is versioned independently in its own
-`Package.swift`; release only the package you intend to distribute.
+All tools work on a private copy of the app's database and never modify your data. Everything runs locally, with no network access.
 
-# VoiceMemosUtils
+---
 
-A small macOS command-line tool, `VoiceMemosUtils`, that finds Voice Memos recordings by **date**, **date range** and a **boolean search over the title**, and prints the paths of the matching audio files, one per line, which makes it easy to script.
+## Mail
 
-```console
-$ voice-memos-utils --from 2026-10-01 --search 'meeting and (budget or roadmap)'
-/Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261003 091500-A1B2C3D4.m4a
-/Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261017 140200-E5F6A7B8.m4a
+Slice and dice Apple Mail conversations and export them as one Markdown and/or HTML file per thread, with participants, timestamps and message bodies. A `list` subcommand previews what would be exported.
+
+- **Command:** `mail-utils` (subcommands `export`, `list`)
+- **Reads:** `~/Library/Mail/V*` (the `Envelope Index` database and the `.emlx` files)
+
+```sh
+# Which threads exist?
+mail-utils list --party alice@example.com --sort last
+
+# Every thread alice@example.com took part in during 2024
+mail-utils export --party alice@example.com --from 2024-01-01 --to 2024-12-31 -o ~/Desktop/alice-2024
+
+# Same threads as browsable HTML pages
+mail-utils export --party alice@example.com --format html
+
+# Only the emails that actually involve both people
+mail-utils export --party alice@example.com --party bob@example.org --only
 ```
 
-Add `--describe` to see each recording's description (the title you see, and can edit, in Voice Memos) before its path:
+More in [Mail/README.md](./Mail/README.md).
 
-```console
-$ voice-memos-utils --from 2026-10-01 --search 'meeting and (budget or roadmap)' --describe
-Description: Q4 budget meeting
-Path: /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261003 091500-A1B2C3D4.m4a
+## Messages
 
-Description: Roadmap meeting
-Path: /Users/me/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/20261017 140200-E5F6A7B8.m4a
+Export macOS Messages conversations (iMessage and SMS) from `chat.db` to one text transcript per conversation, count messages per sender per day/week/month, and extract the most-discussed topics with on-device language models.
+
+- **Command:** `messages-exporter`
+- **Reads:** `~/Library/Messages/chat.db`
+- **Shares its options with** `whatsapp-exporter`, so commands carry over 1:1.
+
+```sh
+# Export every conversation, oldest message first
+messages-exporter --oldest-first --me Marco
+
+# Message counts per sender (daily, weekly, monthly) for one conversation
+messages-exporter --stats --party "+39 333 123 4567"
+
+# The 20 most-discussed topics of a group chat
+messages-exporter --topics 20 --party "Weekend Trip" --lang it
+
+# Stats and topics together, saved to a file
+messages-exporter --stats --topics --party "Weekend Trip" > trip-report.txt
 ```
 
-More in its [README.md](./VoiceMemos/README.md).
+More in [Messages/README.md](./Messages/README.md).
 
-# MailUtils
+## Safari
 
-A small macOS command-line tool, `MailUtils`, allows to slice and dice Mail conversations for easy exporting to markdown.
+Create a consistent SQLite snapshot of Safari's tab groups database, compare its content with the last successful snapshot, and use `rsync` to sync it to a backup folder (iCloud Drive by default) only when something changed. Meant to be run on a schedule.
 
-```console
-# Everyone you've corresponded with, in 2024 only
-mail-utils --party me@example.com --from 2024-01-01 --to 2024-12-31 -o ~/Desktop/mail-2024
+- **Command:** `safari-tabs-backup`
+- **Reads:** `~/Library/Containers/com.apple.Safari/Data/Library/Safari/SafariTabs.db`
 
-# One specific pair
-mail-utils --party alice@example.com --party bob@example.org
+```sh
+# Back up with the default locations
+safari-tabs-backup
+
+# Choose where the backup, local snapshot and logs go
+safari-tabs-backup --backup-dir ~/Backups/SafariTabs --snapshot-dir ~/.cache/safari-tabs --log-dir ~/Logs
+
+# Back up a different database file
+safari-tabs-backup --database /path/to/SafariTabs.db
 ```
 
-More in its [README.md](./Mail/README.md).
+Run `safari-tabs-backup --help` for all options. This tool has no separate README; the options above are the full interface.
+
+## Voice Memos
+
+Find Voice Memos recordings by date, date range and a boolean search over the title, and print the matching audio file paths, one per line, which makes it easy to script.
+
+- **Command:** `voice-memos-utils`
+- **Reads:** `~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings/CloudRecordings.db`
+
+```sh
+# Everything recorded on one day
+voice-memos-utils --date 2026-10-23
+
+# October 2026
+voice-memos-utils --from 2026-10-01 --to 2026-10-31
+
+# Boolean title search, shown with each recording's title
+voice-memos-utils --search '"team meeting" and (budget or roadmap)' --describe
+
+# Copy all matches to a folder
+voice-memos-utils --search meeting | while IFS= read -r file; do cp "$file" ~/Desktop/export/; done
+```
+
+More in [VoiceMemos/README.md](./VoiceMemos/README.md).
+
+## WhatsApp
+
+Export WhatsApp chats from the desktop app's `ChatStorage.sqlite` to one text transcript per chat, count messages per sender per day/week/month, and extract the most-discussed topics with on-device language models.
+
+- **Command:** `whatsapp-exporter`
+- **Reads:** `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite`
+- **Shares its options with** `messages-exporter`, so commands carry over 1:1.
+
+```sh
+# Export every chat, oldest message first
+whatsapp-exporter --oldest-first --me Marco
+
+# Message counts per sender (daily, weekly, monthly) for one chat
+whatsapp-exporter --stats --party "Ana"
+
+# The 20 most-discussed topics of a chat, hiding generic words
+whatsapp-exporter --topics 20 --party "Ana" --lang it --ignore cosa,volta,giorno
+
+# Stats and topics together, saved to a file
+whatsapp-exporter --stats --topics --party "Ana" > ana-report.txt
+```
+
+More in [WhatsApp/README.md](./WhatsApp/README.md).
