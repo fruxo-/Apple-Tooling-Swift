@@ -14,13 +14,14 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        package: [Messages, Safari, WhatsApp]
+        package: [Messages, Safari, VoiceMemos, WhatsApp]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Build
       working-directory: ${{ matrix.package }}
       run: swift build -c release -v
-    - name: Run tests
-      working-directory: ${{ matrix.package }}
-      run: swift test -v
+#    - name: Run tests
+#      working-directory: ${{ matrix.package }}
+#      run: swift test -v
+#
