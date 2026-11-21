@@ -245,21 +245,24 @@ Choose the output with `--format table|tsv|json` and the order with `--sort firs
 Mail/
 ├── Package.swift                     Swift package manifest (macOS 13+)
 ├── README.md                         this file
-└── Sources/
-    └── MailUtils/
-        ├── MailUtils.swift           entry point: `mail-utils` and its subcommands
-        ├── SelectionOptions.swift    shared selection options, date parsing, loading
-        ├── ExportCommand.swift       `export`
-        ├── ListCommand.swift         `list`
-        ├── Models.swift              errors, logging, Mail location, message and thread model
-        ├── SQLite.swift              read-only SQLite wrapper, database snapshot
-        ├── MailStore.swift           the Envelope Index queries
-        ├── EmlxIndex.swift           .emlx index and matching emails to files
-        ├── MIME.swift                MIME parsing and .emlx reader
-        ├── ThreadDocument.swift      per-thread data, text helpers, name formatting
-        ├── Exporter.swift            writes thread files and indexes
-        ├── MarkdownRenderer.swift    Markdown output
-        └── HTMLRenderer.swift        HTML output
+├── Sources/
+│   └── MailUtils/
+│       ├── MailUtils.swift           entry point: `mail-utils` and its subcommands
+│       ├── SelectionOptions.swift    shared selection options, date parsing, loading
+│       ├── ExportCommand.swift       `export`
+│       ├── ListCommand.swift         `list`
+│       ├── Models.swift              errors, logging, Mail location, message and thread model
+│       ├── SQLite.swift              read-only SQLite wrapper, database snapshot
+│       ├── MailStore.swift           the Envelope Index queries
+│       ├── EmlxIndex.swift           .emlx index and matching emails to files
+│       ├── MIME.swift                MIME parsing and .emlx reader
+│       ├── ThreadDocument.swift      per-thread data, text helpers, name formatting
+│       ├── Exporter.swift            writes thread files and indexes
+│       ├── MarkdownRenderer.swift    Markdown output
+│       └── HTMLRenderer.swift        HTML output
+└── Tests/
+    └── MailUtilsTests/
+        └── MailUtilsTests.swift      XCTest suites (text helpers, MIME/.emlx parsing, threading, file matching)
 ```
 
 ### How it works
@@ -285,6 +288,14 @@ Mail/
 - Recipient `type` 0 / 1 / 2 is To / Cc / Bcc. Check with `SELECT DISTINCT type FROM recipients`; anything else is labelled "Other recipients".
 - `.emlx` file names correspond to `messages.ROWID` (or `remote_id`). The Mail folder layout has changed between macOS versions.
 - `messages.conversation_id` groups related emails, and 0 means "no conversation". The whole export is built on this; if threads look wrong, that column is where to look.
+
+### Testing
+
+```sh
+swift test
+```
+
+The tests cover the logic that doesn't need a real mailbox: subject and file-name helpers, RFC 2047 / quoted-printable / RFC 2231 decoding, HTML-to-text conversion, `.emlx` and multipart parsing, thread building and participant counts, the HTML quote folding, date-option parsing, locating the Mail folder, and matching emails to `.emlx` files. They build their fixtures in temporary folders and never touch your real Mail data.
 
 ### Adding a new subcommand
 
